@@ -1,0 +1,44 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.5  # Update to latest ruff version
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        stages: [commit, push]
+        name: Ruff
+        description: Lint and format with Ruff
+        language: python
+        language_version: python3.10
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-ast
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.16.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+        name: Conventional Commits
+        description: Validate commit message format
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: Run Pytest
+        entry: pytest
+        language: python
+        language_version: python3.10
+        types: [python]
+        files: ^tests/|^src/
+        pass_filenames: false
+        additional_dependencies:
+          - pytest
+          - pytest-cov
+          - coverage[toml]
