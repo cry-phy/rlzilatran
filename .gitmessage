@@ -1,1 +1,29 @@
-<type>: <description>
+# Conventional Commits Template
+#   <type>(<scope>): <description>
+#   Example: feat(auth): add password reset endpoint
+#
+# Types: feat, fix, docs, style, refactor, test, chore, ci, perf, build, revert
+
+# --- Type (required) ---
+# feat     : New feature
+# fix      : Bug fix
+# docs     : Documentation changes
+# style    : Code formatting (no logic changes)
+# refactor : Code changes that aren't fixes/features
+# test     : Test-related changes
+# chore    : Maintenance tasks
+# ci       : CI/CD changes
+# perf     : Performance improvements
+# build    : Build system changes
+# revert   : Revert a previous commit
+
+<type>(<scope>): <subject>
+
+# --- Body (optional) ---
+# Explain WHAT and WHY (not HOW)
+# Wrap at 72 characters
+
+# --- Footer (optional) ---
+# BREAKING CHANGE: <description>
+# Closes #<issue-number>
+# Related #<issue-number>
