@@ -40,7 +40,7 @@ CNNs have shown the ability to combinde global understanding of game states with
 
 Since a wide variety of CNNs have been utilized, it would be reasonable to replicate a Net already proven for this game, adapting only if needed. Starting with a low weight CNN for testing and development should speed up prototyping, finally competitive training could use RESNet matching the [AlphaZero]() approach.
 
-Generally the game state could be represented as a $(4, 8, 6)$ types to separate pieces and players into layers. This serves as the input to the CNN which outputs a value rating $v(s)$ from $\left[-1, 1 \right]$ for the current position and a
+Generally the game state could be represented as a $(4, 8, 6)$ types to separate pieces and players into layers. This serves as the input to the CNN which outputs a value rating $v(s)$ from $\left[-1, 1 \right]$ for the current game state $s$ and a propability vector $\vec p(s)$ over the possible moves from the current state.
 
 ### Monte Carlo Tree Search
 
