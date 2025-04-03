@@ -42,6 +42,12 @@ Since a wide variety of CNNs have been utilized, it would be reasonable to repli
 
 Generally the game state could be represented as a $(4, 8, 6)$ types to separate pieces and players into layers. This serves as the input to the CNN which outputs a value rating $v(s)$ from $\left[-1, 1 \right]$ for the current game state $s$ and a propability vector $\vec p(s)$ over the possible moves from the current state.
 
+The loss function is given by:
+
+$$l = \sum_{t} (v_{\theta}(s_{t}) - z_{t})^2 - \pi_{t} \cdot \log(p_{\theta}(s_{t}))$$
+
+where $\pi_{t}$ is the estimate of the state through an outside estzimator such as described in the coming chapter.
+
 ### Monte Carlo Tree Search
 
 To train the CNN we need to generate reference Value estimates, where we have a wide variety of choices. To stick to the model of [AlphaZero](https://arxiv.org/abs/1712.01815) the clear choice would presented by the Monte Carlo Tree Search algorithm ([SARSA/Q-Learning](https://en.wikipedia.org/wiki/Q-learning) or [first/every visit MC](https://www.andrew.cmu.edu/course/10-403/slides/S19_lecture4_MC.pdf) methods could have been employed but the paralellization of MCTS seems most interesting).
