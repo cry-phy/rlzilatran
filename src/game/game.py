@@ -32,3 +32,11 @@ class Game(Generic[G]):
 
     def render(self) -> None:
         """Render game state for debugging."""
+
+    def save(self, path: str) -> None:
+        """Save game state to torch tensor file."""
+        self.state.save(path)
+
+    def load(self, path: str) -> None:
+        """Load game state from torch tensor file."""
+        self.state.load(path)

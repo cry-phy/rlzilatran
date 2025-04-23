@@ -60,3 +60,11 @@ class State:
     def reset(self) -> None:
         """Set to initial state."""
         self._tensor = board_generator.initial_board()
+
+    def save(self, path: str) -> None:
+        """Save game state to torch tensor file."""
+        torch.save(self._tensor, path)
+
+    def load(self, path: str) -> None:
+        """Load game state from torch tensor file."""
+        self._tensor = torch.load(path)

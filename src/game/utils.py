@@ -13,9 +13,6 @@ class __BoardGenerator:
 
     def __init__(self) -> None:
         """Empty initializer use Factory methods instead."""
-        self.BOARD_SIZE = (4, 8)
-        self.NUM_LAYERS = 7
-        self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
         PRIVATE_LAYER = 2
         PRIVATE_POSITIONS = torch.IntTensor(
             [
@@ -50,6 +47,9 @@ class __BoardGenerator:
             ]
         ).T
         self._pieces = ["P", "S", "O"]
+        self.BOARD_SIZE = (4, 8)
+        self.NUM_LAYERS = 2 * len(self._pieces) + 1
+        self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
         self._piece_layer_dict = {
             "P": PRIVATE_LAYER,
             "S": SERGEANT_LAYER,
@@ -98,6 +98,10 @@ class __BoardGenerator:
     def _set_pieces(self) -> None:
         for key in self._pieces:
             self._set_piece_position(key)
+        self._board[len(self._pieces) + 1 :, :, int(self.BOARD_SIZE[1] / 2) :] = (
+            self._board[: len(self._pieces), :, int(self.BOARD_SIZE[1] / 2) :]
+        )
+        self._board[: len(self._pieces), :, int(self.BOARD_SIZE[1] / 2) :] = 0
 
 
 board_generator = __BoardGenerator()

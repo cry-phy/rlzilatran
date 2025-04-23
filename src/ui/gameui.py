@@ -83,7 +83,7 @@ class GameUI:
             filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
         )
         if path:
-            # self.game.save(path)
+            self.game.save(path)
             messagebox.showinfo("Save", f"Game saved to {path}")
 
     def on_load(self):
@@ -92,7 +92,7 @@ class GameUI:
             filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
         )
         if path:
-            # self.game.load(path)
+            self.game.load(path)
             self.redraw_board()
 
     def on_restart(self):
