@@ -26,6 +26,8 @@ class GameUI:
         root.config(menu=menubar)
 
         self.COLUMNS, self.ROWS = board_generator.board_size()
+        self.selected: bool = False
+        self.selected_position: tuple[int, int] = (-1, -1)
 
         # --- Canvas for Board ---
         canvas_width = self.COLUMNS * self.CELL_SIZE
@@ -35,21 +37,23 @@ class GameUI:
         )
         self.canvas.pack(padx=10, pady=10)
 
-        self.draw_grid()
-        self.draw_pieces()
+        self.draw_board()
 
         self.canvas.bind("<Button-1>", self.on_click)
 
-    def draw_grid(self):
+    def _get_cell_boundaries(self, x: int, y: int) -> tuple[int, int, int, int]:
+        x1 = x * self.CELL_SIZE
+        y1 = y * self.CELL_SIZE
+        x2 = x1 + self.CELL_SIZE
+        y2 = y1 + self.CELL_SIZE
+        return x1, y1, x2, y2
+
+    def draw_grid(self) -> None:
         """Draw grid on which the Game is rendered."""
-        for row in range(self.ROWS):
-            for col in range(self.COLUMNS):
-                x1 = col * self.CELL_SIZE
-                y1 = row * self.CELL_SIZE
-                x2 = x1 + self.CELL_SIZE
-                y2 = y1 + self.CELL_SIZE
+        for y in range(self.ROWS):
+            for x in range(self.COLUMNS):
                 self.canvas.create_rectangle(
-                    x1, y1, x2, y2, outline="black", fill="lightgray"
+                    *self._get_cell_boundaries(x, y), outline="black", fill="lightgray"
                 )
 
     def draw_pieces(self):
@@ -73,11 +77,17 @@ class GameUI:
                     font=("Helvetica 15 bold"),
                 )
 
-    def on_save(self):
-        """Save current game as pickle.
+    def draw_selected(self) -> None:
+        """Draw selected square."""
+        if self.selected:
+            self.canvas.create_rectangle(
+                *self._get_cell_boundaries(*self.selected_position),
+                outline="black",
+                fill="lightblue",
+            )
 
-        TODO!
-        """
+    def on_save(self):
+        """Save current game as pickle."""
         path = filedialog.asksaveasfilename(
             defaultextension=".txt",
             filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
@@ -102,13 +112,35 @@ class GameUI:
 
     def on_click(self, event):
         """Recognize cell click."""
-        col = event.x // self.CELL_SIZE
-        row = event.y // self.CELL_SIZE
-        print(f"Clicked on row {row}, col {col}")
+        x = event.x // self.CELL_SIZE
+        y = event.y // self.CELL_SIZE
+        if self.click_validity(x, y):
+            self.select(x, y)
         self.redraw_board()
+
+    def select(self, x, y):
+        """Select certain square."""
+        if not self.selected:
+            self.selected_position = (x, y)
+            self.selected = True
+        else:
+            # TODO make move
+            self.selected = False
+
+    def click_validity(self, x, y) -> bool:
+        """Check whether square is valid."""
+        return (
+            self.game.state.get_state().sum(axis=0)[x, y]
+            and y <= board_generator.board_size()[1]
+        )
+
+    def draw_board(self) -> None:
+        """Wrap common draw functions."""
+        self.draw_grid()
+        self.draw_selected()
+        self.draw_pieces()
 
     def redraw_board(self):
         """Redraw game state."""
         self.canvas.delete("all")
-        self.draw_grid()
-        self.draw_pieces()
+        self.draw_board()
