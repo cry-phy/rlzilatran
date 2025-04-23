@@ -28,4 +28,4 @@ class Game(Generic[G]):
         ...
 
     def render(self) -> None:
-        """Render game stae for debugging."""
+        """Render game state for debugging."""
