@@ -2,6 +2,7 @@ from game.game import Game
 from game.utils import board_generator
 import tkinter as tk
 from tkinter import Menu, filedialog, messagebox
+import torch
 
 
 class GameUI:
@@ -35,6 +36,7 @@ class GameUI:
         self.canvas.pack(padx=10, pady=10)
 
         self.draw_grid()
+        self.draw_pieces()
 
         self.canvas.bind("<Button-1>", self.on_click)
 
@@ -48,6 +50,27 @@ class GameUI:
                 y2 = y1 + self.CELL_SIZE
                 self.canvas.create_rectangle(
                     x1, y1, x2, y2, outline="black", fill="lightgray"
+                )
+
+    def draw_pieces(self):
+        """Draw pieces."""
+        current_state = self.game.state.get_state()
+        piece_layer_dict = board_generator.piece_layer_dict()
+        for piece in board_generator.pieces():
+            piece_layer = (
+                current_state[piece_layer_dict[piece]]
+                + current_state[-(piece_layer_dict[piece] + 1)]
+            )
+            positions: tuple[torch.Tensor, torch.Tensor] = torch.where(piece_layer)
+            xs: torch.Tensor = (positions[0] + 0.5) * self.CELL_SIZE
+            ys: torch.Tensor = (positions[1] + 0.5) * self.CELL_SIZE
+            for x, y in zip(xs, ys, strict=False):
+                self.canvas.create_text(
+                    float(x),
+                    float(y),
+                    text=piece,
+                    fill="black",
+                    font=("Helvetica 15 bold"),
                 )
 
     def on_save(self):
@@ -88,3 +111,4 @@ class GameUI:
         """Redraw game state."""
         self.canvas.delete("all")
         self.draw_grid()
+        self.draw_pieces()

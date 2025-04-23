@@ -16,33 +16,55 @@ class __BoardGenerator:
         self.BOARD_SIZE = (4, 8)
         self.NUM_LAYERS = 7
         self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
-        self.PRIVATE_LAYER = 2
-        self.PRIVATE_POSITIONS = [
-            (2, 1),
-            (1, 2),
-            (2, 2),
-            (-3, -2),
-            (-2, -3),
-            (-3, -3),
-        ]
-        self.SERGEANT_LAYER = 1
-        self.SERGEANT_POSITIONS = [
-            (0, 2),
-            (1, 1),
-            (2, 0),
-            (-1, -3),
-            (-2, -2),
-            (-3, -1),
-        ]
-        self.OFFICER_LAYER = 0
-        self.OFFICER_POSITIONS = [
-            (0, 0),
-            (0, 1),
-            (1, 0),
-            (-1, -1),
-            (-1, -2),
-            (-2, -1),
-        ]
+        PRIVATE_LAYER = 2
+        PRIVATE_POSITIONS = torch.IntTensor(
+            [
+                (2, 1),
+                (1, 2),
+                (2, 2),
+                (-3, -2),
+                (-2, -3),
+                (-3, -3),
+            ]
+        ).T
+        SERGEANT_LAYER = 1
+        SERGEANT_POSITIONS = torch.IntTensor(
+            [
+                (0, 2),
+                (1, 1),
+                (2, 0),
+                (-1, -3),
+                (-2, -2),
+                (-3, -1),
+            ]
+        ).T
+        OFFICER_LAYER = 0
+        OFFICER_POSITIONS = torch.IntTensor(
+            [
+                (0, 0),
+                (0, 1),
+                (1, 0),
+                (-1, -1),
+                (-1, -2),
+                (-2, -1),
+            ]
+        ).T
+        self._pieces = ["P", "S", "O"]
+        self._piece_layer_dict = {
+            "P": PRIVATE_LAYER,
+            "S": SERGEANT_LAYER,
+            "O": OFFICER_LAYER,
+        }
+        self._piece_move_dict = {
+            "P": None,
+            "S": None,
+            "O": None,
+        }
+        self._initial_piece_dictionary = {
+            "P": PRIVATE_POSITIONS,
+            "S": SERGEANT_POSITIONS,
+            "O": OFFICER_POSITIONS,
+        }
         self._board: torch.Tensor = torch.zeros(self.BOARD_DIMENSIONS)
 
     def empty_board(self) -> torch.Tensor:
@@ -51,9 +73,7 @@ class __BoardGenerator:
 
     def initial_board(self) -> torch.Tensor:
         """Get initial board state."""
-        self.set_privates()
-        self.set_sergeants()
-        self.set_officers()
+        self._set_pieces()
         return self._board.clone()
 
     def board_size(self) -> tuple[int, int]:
@@ -64,17 +84,20 @@ class __BoardGenerator:
         """Get number of layers."""
         return self.NUM_LAYERS
 
-    def set_privates(self) -> None:
+    def pieces(self) -> list[str]:
+        return deepcopy(self._pieces)
+
+    def piece_layer_dict(self) -> dict[str, int]:
+        return self._piece_layer_dict
+
+    def _set_piece_position(self, key: str) -> None:
         """Get Private Board."""
-        self._board[self.PRIVATE_LAYER, self.PRIVATE_POSITIONS] = 1
+        x, y = self._initial_piece_dictionary[key]
+        self._board[self._piece_layer_dict[key]][x, y] = 1
 
-    def set_sergeants(self) -> None:
-        """Get Sergeant Board."""
-        self._board[self.SERGEANT_LAYER, self.SERGEANT_POSITIONS] = 1
-
-    def set_officers(self) -> None:
-        """Get Officer Board."""
-        self._board[self.OFFICER_LAYER, self.OFFICER_POSITIONS] = 1
+    def _set_pieces(self) -> None:
+        for key in self._pieces:
+            self._set_piece_position(key)
 
 
 board_generator = __BoardGenerator()

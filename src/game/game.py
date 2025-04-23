@@ -1,5 +1,7 @@
 from typing import Generic, TypeVar
 
+from game.state import State
+
 G = TypeVar("G")
 
 
@@ -11,6 +13,7 @@ class Game(Generic[G]):
 
         Should not be used directly! Use factory Methods instead.
         """
+        self.state: State = State.initial_state()
         ...
 
     @classmethod

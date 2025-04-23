@@ -1,4 +1,4 @@
-from src.game.utils import BoardGenerator
+from game.utils import board_generator
 import torch
 
 
@@ -22,7 +22,7 @@ class State:
     @classmethod
     def initial_state(cls) -> "State":
         """Generate Initial game State."""
-        return cls(BoardGenerator().get_board())
+        return cls(board_generator.initial_board())
 
     @classmethod
     def from_tensor(cls, tensor: torch.Tensor) -> "State":
@@ -59,4 +59,4 @@ class State:
 
     def reset(self) -> None:
         """Set to initial state."""
-        self._tensor = BoardGenerator().get_board()
+        self._tensor = board_generator.initial_board()
