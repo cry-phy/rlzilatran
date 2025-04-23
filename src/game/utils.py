@@ -43,11 +43,11 @@ class __BoardGenerator:
             (-1, -2),
             (-2, -1),
         ]
-        self._board: torch.Tensor = torch.empty(self.BOARD_DIMENSIONS)
+        self._board: torch.Tensor = torch.zeros(self.BOARD_DIMENSIONS)
 
     def empty_board(self) -> torch.Tensor:
         """Get empty board."""
-        return torch.empty(self.BOARD_DIMENSIONS)
+        return torch.zeros(self.BOARD_DIMENSIONS)
 
     def initial_board(self) -> torch.Tensor:
         """Get initial board state."""

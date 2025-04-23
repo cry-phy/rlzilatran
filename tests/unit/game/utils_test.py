@@ -1,4 +1,5 @@
 from game.utils import board_generator
+import torch
 
 
 def test_empty_board_size():
@@ -15,3 +16,14 @@ def test_init_board_size():
     layers = board_generator.num_layers()
     board = board_generator.initial_board()
     assert (layers, *size) == board.size()
+
+
+def test_init_board():
+    """Test whether initial board is set correctly."""
+    assert (
+        torch.allclose(
+            torch.load("tests/fixtures/init_board.pt"),
+            board_generator.initial_board(),
+        )
+        is True
+    )
