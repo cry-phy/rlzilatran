@@ -44,25 +44,50 @@ class State:
         """Return state Tensor for training."""
         return self._tensor.clone()
 
-    def check_move(self, x1, y1, x2, y2) -> bool:
+    def square_filled(self, x: int, y: int) -> bool:
+        """Return if th square has pieces on it."""
+        return bool(self._tensor[:, x, y].sum(axis=0))
+
+    def check_move(self, x1: int, y1: int, x2: int, y2: int) -> bool:
         """Check whether move is valid."""
         return not (
             self._board_size[0] >= x1 >= 0
             and self._board_size[1] >= y1 >= 0
             and self._board_size[0] >= x2 >= 0
             and self._board_size[1] >= y2 >= 0
-            and bool(self._tensor[:, x2, y2].sum(axis=0))
-            and y2 < int(board_generator.board_size()[1] / 2)
+            and self.square_filled(x2, y2)
+            and board_generator.player_half(y2)
         )
 
-    def make_move(self, x1, y1, x2, y2) -> None:
+    def make_move(self, x1: int, y1: int, x2: int, y2: int) -> None:
         """Make move corresponding to index."""
         capture = torch.where(
             self._tensor[:, x2, y2] != 0, board_generator.layer_values(), 0
         )
         self._captured_value += capture.sum()
+        # Benchmarked this: Faster than setting with add/remove_piece and where.
         self._tensor[:, x2, y2] = self._tensor[:, x1, y1]
         self._tensor[:, x1, y1] = 0
+
+    def add_piece(self, x: int, y: int, piece: str) -> None:
+        """Add Piece to certain layer."""
+        layer = board_generator.piece_layer_dict()[piece]
+        if not board_generator.player_half(y):
+            layer = -(layer + 1)
+        print(x, y, layer)
+        self._tensor[layer, x, y] = 1
+
+    def remove_piece(self, x: int, y: int, piece: str) -> None:
+        """Remove certain piece."""
+        layer = board_generator.piece_layer_dict()[piece]
+        if not board_generator.player_half(y):
+            layer = -(layer + 1)
+        print(x, y, layer)
+        self._tensor[layer, x, y] = 0
+
+    def clear_square(self, x: int, y: int) -> None:
+        """Clear square entirely."""
+        self._tensor[:, x, y] = 0
 
     def captured_value(self) -> float:
         """Return current capture valuation."""

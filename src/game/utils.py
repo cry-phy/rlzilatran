@@ -98,6 +98,10 @@ class __BoardGenerator:
         """Get number of layers."""
         return self.NUM_LAYERS
 
+    def player_half(self, y: int) -> bool:
+        """Return if y is on the player side of the board."""
+        return y < int(self.BOARD_SIZE[1] / 2)
+
     def pieces(self) -> list[str]:
         return deepcopy(self._pieces)
 

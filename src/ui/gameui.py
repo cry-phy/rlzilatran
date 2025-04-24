@@ -1,8 +1,28 @@
 from game.game import Game
+from game.state import State
 from game.utils import board_generator
 import tkinter as tk
-from tkinter import Menu, filedialog, messagebox
+from tkinter import Event, Menu, filedialog, messagebox
 import torch
+from enum import Enum, auto
+
+
+class Tool(Enum):
+    """Enum for handling selected tool."""
+
+    NONE = auto()
+    INMOVE = auto()
+    ADDP = auto()
+    ADDS = auto()
+    ADDO = auto()
+    REMOVE = auto()
+
+
+PIECE_TOOL_DICT = {
+    Tool.ADDP: "P",
+    Tool.ADDS: "S",
+    Tool.ADDO: "O",
+}
 
 
 class GameUI:
@@ -10,8 +30,11 @@ class GameUI:
 
     CELL_SIZE = 80
 
-    def __init__(self, root, game: Game):
+    def __init__(self, root, game: Game) -> None:
+        """Initialize window."""
         self.game = game
+        self.selected: Tool = Tool.NONE
+        self.selected_var: tk.IntVar = tk.IntVar(value=self.selected.value)
 
         # --- Menu Bar ---
         menubar = Menu(root)
@@ -19,17 +42,51 @@ class GameUI:
         filemenu.add_command(label="Save", command=self.on_save)
         filemenu.add_command(label="Load", command=self.on_load)
         filemenu.add_separator()
+        filemenu.add_command(label="Empty", command=self.new_empty)
         filemenu.add_command(label="Restart", command=self.on_restart)
         filemenu.add_separator()
         filemenu.add_command(label="Quit", command=root.quit)
         menubar.add_cascade(label="File", menu=filemenu)
+        toolmenu = tk.Menu(menubar, tearoff=0)
+        toolmenu.add_radiobutton(
+            label="P",
+            variable=self.selected_var,
+            value=Tool.ADDP.value,
+            command=lambda: self._select_tool(Tool.ADDP),
+        )
+        toolmenu.add_radiobutton(
+            label="S",
+            variable=self.selected_var,
+            value=Tool.ADDS.value,
+            command=lambda: self._select_tool(Tool.ADDS),
+        )
+        toolmenu.add_radiobutton(
+            label="O",
+            variable=self.selected_var,
+            value=Tool.ADDO.value,
+            command=lambda: self._select_tool(Tool.ADDO),
+        )
+        toolmenu.add_radiobutton(
+            label="X",
+            variable=self.selected_var,
+            value=Tool.REMOVE.value,
+            command=lambda: self._select_tool(Tool.REMOVE),
+        )
+        toolmenu.add_separator()
+        toolmenu.add_radiobutton(
+            label="None",
+            variable=self.selected_var,
+            value=Tool.NONE.value,
+            command=lambda: self._select_tool(Tool.NONE),
+        )
+        menubar.add_cascade(label="Tools", menu=toolmenu)
         root.config(menu=menubar)
 
-        self.COLUMNS, self.ROWS = board_generator.board_size()
-        self.selected: bool = False
         self.selected_position: tuple[int, int] = (-1, -1)
+        self.selected_piece: str = ""
 
         # --- Canvas for Board ---
+        self.COLUMNS, self.ROWS = board_generator.board_size()
         canvas_width = self.COLUMNS * self.CELL_SIZE
         canvas_height = self.ROWS * self.CELL_SIZE
         self.canvas = tk.Canvas(
@@ -41,11 +98,24 @@ class GameUI:
 
         self.canvas.bind("<Button-1>", self.on_click)
 
+        self.canvas.bind("<Button-2>", self._clear_tool)
+
+    def _select_tool(self, tool: Tool) -> None:
+        """Centralize tool selection logic."""
+        self.selected = tool
+        self.selected_var.set(tool.value)
+        self.redraw_board()
+
+    def _clear_tool(self, event: Event) -> None:
+        """Clear tool selection."""
+        self._select_tool(Tool.NONE)
+
     def _get_cell_boundaries(self, x: int, y: int) -> tuple[int, int, int, int]:
-        x1 = x * self.CELL_SIZE
-        y1 = y * self.CELL_SIZE
-        x2 = x1 + self.CELL_SIZE
-        y2 = y1 + self.CELL_SIZE
+        """Find boundary of cell for drawing Board."""
+        x1: float = x * self.CELL_SIZE
+        y1: float = y * self.CELL_SIZE
+        x2: float = x1 + self.CELL_SIZE
+        y2: float = y1 + self.CELL_SIZE
         return x1, y1, x2, y2
 
     def draw_grid(self) -> None:
@@ -56,7 +126,7 @@ class GameUI:
                     *self._get_cell_boundaries(x, y), outline="black", fill="lightgray"
                 )
 
-    def draw_pieces(self):
+    def draw_pieces(self) -> None:
         """Draw pieces."""
         current_state = self.game.state.get_state()
         piece_layer_dict = board_generator.piece_layer_dict()
@@ -79,78 +149,95 @@ class GameUI:
 
     def draw_selected(self) -> None:
         """Draw selected square."""
-        if self.selected:
+        if self.selected == Tool.INMOVE:
             self.canvas.create_rectangle(
                 *self._get_cell_boundaries(*self.selected_position),
                 outline="black",
                 fill="lightblue",
             )
 
-    def on_save(self):
+    def on_save(self) -> None:
         """Save current game as pickle."""
         path = filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
+            defaultextension=".pt",
+            filetypes=[("PyTorch files", "*.pt"), ("All Files", "*.*")],
         )
         if path:
             self.game.save(path)
             messagebox.showinfo("Save", f"Game saved to {path}")
 
-    def on_load(self):
+    def on_load(self) -> None:
         """Load game from pickled state."""
         path = filedialog.askopenfilename(
-            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
+            defaultextension=".pt",
+            filetypes=[("PyTorch files", "*.pt"), ("All Files", "*.*")],
         )
         if path:
             self.game.load(path)
             self.redraw_board()
 
-    def on_restart(self):
+    def new_empty(self) -> None:
+        """Generate empty board."""
+        self.game.state = State.empty()
+        self.redraw_board()
+
+    def on_restart(self) -> None:
         """Reset game to initial."""
         self.game.reset()
         self.redraw_board()
 
-    def on_click(self, event):
+    def on_click(self, event: Event) -> None:
         """Recognize cell click."""
-        x = event.x // self.CELL_SIZE
-        y = event.y // self.CELL_SIZE
-        if self.first_click_validity(x, y):
-            self.select_square(x, y)
-        elif self.second_click_validity(x, y):
-            self.move_piece(x, y)
+        x: int = event.x // self.CELL_SIZE
+        y: int = event.y // self.CELL_SIZE
+        match self.selected:
+            case Tool.NONE:
+                if self.first_click_validity(x, y):
+                    self.select_square(x, y)
+            case Tool.INMOVE:
+                if self.second_click_validity(x, y):
+                    self.move_piece(x, y)
+            case Tool.ADDP | Tool.ADDS | Tool.ADDO:
+                if not self.game.state.square_filled(x, y):
+                    self.place_piece(x, y)
+            case Tool.REMOVE:
+                self.remove_piece(x, y)
         self.redraw_board()
 
-    def select_square(self, x, y):
+    def select_square(self, x: int, y: int):
         """Select certain square."""
-        if not self.selected:
+        if self.selected == Tool.NONE:
             self.selected_position = (x, y)
-            self.selected = True
-        else:
-            self.selected = False
+            self._select_tool(Tool.INMOVE)
 
-    def first_click_validity(self, x, y) -> bool:
+    def first_click_validity(self, x: int, y: int) -> bool:
         """Check whether square is valid for selection."""
         return (
             self.game.state.get_state()[:, x, y].sum(axis=0)
-            and y < int(board_generator.board_size()[1] / 2)
-            and not self.selected
+            and board_generator.player_half(y)
+            and self.selected == Tool.NONE
         )
 
-    def second_click_validity(self, x, y) -> bool:
+    def second_click_validity(self, x: int, y: int) -> bool:
         """Check whether square is valid for move."""
-        return self.selected and self.game.state.check_move(
+        return self.selected == Tool.INMOVE and self.game.state.check_move(
             self.selected_position[0], self.selected_position[1], x, y
         )
 
-    def move_piece(self, x, y) -> None:
-        """Make move to piece.
-
-        TODO: Only to generate and test till move logic is valid.
-        """
+    def move_piece(self, x: int, y: int) -> None:
+        """Make move to piece."""
         self.game.state.make_move(
             self.selected_position[0], self.selected_position[1], x, y
         )
-        self.selected = False
+        self._select_tool(Tool.NONE)
+
+    def place_piece(self, x: int, y: int) -> None:
+        """Place piece according to current tool on square."""
+        self.game.state.add_piece(x, y, PIECE_TOOL_DICT[self.selected])
+
+    def remove_piece(self, x: int, y: int) -> None:
+        """Clear square."""
+        self.game.state.clear_square(x, y)
 
     def draw_board(self) -> None:
         """Wrap common draw functions."""
@@ -158,7 +245,7 @@ class GameUI:
         self.draw_selected()
         self.draw_pieces()
 
-    def redraw_board(self):
+    def redraw_board(self) -> None:
         """Redraw game state."""
         self.canvas.delete("all")
         self.draw_board()
