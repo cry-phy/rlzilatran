@@ -30,9 +30,6 @@ class Game(Generic[G]):
         """Set seed for reproducability."""
         ...
 
-    def render(self) -> None:
-        """Render game state for debugging."""
-
     def save(self, path: str) -> None:
         """Save game state to torch tensor file."""
         self.state.save(path)

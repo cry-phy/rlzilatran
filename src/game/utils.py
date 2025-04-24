@@ -1,5 +1,6 @@
 import torch
 from copy import deepcopy
+from functools import cache
 
 __all__ = ["board_generator"]
 
@@ -55,6 +56,11 @@ class __BoardGenerator:
             "S": SERGEANT_LAYER,
             "O": OFFICER_LAYER,
         }
+        self._piece_value_dict = {
+            "P": 1,
+            "S": 2,
+            "O": 3,
+        }
         self._piece_move_dict = {
             "P": None,
             "S": None,
@@ -66,6 +72,14 @@ class __BoardGenerator:
             "O": OFFICER_POSITIONS,
         }
         self._board: torch.Tensor = torch.zeros(self.BOARD_DIMENSIONS)
+        self._layer_values: torch.Tensor = torch.zeros(self.NUM_LAYERS)
+        for piece in self._pieces:
+            self._layer_values[self._piece_layer_dict[piece]] = self._piece_value_dict[
+                piece
+            ]
+            self._layer_values[-(self._piece_layer_dict[piece] + 1)] = (
+                self._piece_value_dict[piece]
+            )
 
     def empty_board(self) -> torch.Tensor:
         """Get empty board."""
@@ -89,6 +103,14 @@ class __BoardGenerator:
 
     def piece_layer_dict(self) -> dict[str, int]:
         return self._piece_layer_dict
+
+    def layer_value(self, index: int) -> float:
+        """Return value of layer piece."""
+        return self._layer_values[index]
+
+    @cache
+    def layer_values(self) -> torch.Tensor:
+        return self._layer_values.clone()
 
     def _set_piece_position(self, key: str) -> None:
         """Get Private Board."""

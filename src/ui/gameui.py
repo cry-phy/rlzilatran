@@ -114,25 +114,43 @@ class GameUI:
         """Recognize cell click."""
         x = event.x // self.CELL_SIZE
         y = event.y // self.CELL_SIZE
-        if self.click_validity(x, y):
-            self.select(x, y)
+        if self.first_click_validity(x, y):
+            self.select_square(x, y)
+        elif self.second_click_validity(x, y):
+            self.move_piece(x, y)
         self.redraw_board()
 
-    def select(self, x, y):
+    def select_square(self, x, y):
         """Select certain square."""
         if not self.selected:
             self.selected_position = (x, y)
             self.selected = True
         else:
-            # TODO make move
             self.selected = False
 
-    def click_validity(self, x, y) -> bool:
-        """Check whether square is valid."""
+    def first_click_validity(self, x, y) -> bool:
+        """Check whether square is valid for selection."""
         return (
-            self.game.state.get_state().sum(axis=0)[x, y]
-            and y <= board_generator.board_size()[1]
+            self.game.state.get_state()[:, x, y].sum(axis=0)
+            and y < int(board_generator.board_size()[1] / 2)
+            and not self.selected
         )
+
+    def second_click_validity(self, x, y) -> bool:
+        """Check whether square is valid for move."""
+        return self.selected and self.game.state.check_move(
+            self.selected_position[0], self.selected_position[1], x, y
+        )
+
+    def move_piece(self, x, y) -> None:
+        """Make move to piece.
+
+        TODO: Only to generate and test till move logic is valid.
+        """
+        self.game.state.make_move(
+            self.selected_position[0], self.selected_position[1], x, y
+        )
+        self.selected = False
 
     def draw_board(self) -> None:
         """Wrap common draw functions."""
