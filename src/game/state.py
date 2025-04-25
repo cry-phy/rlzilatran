@@ -17,7 +17,6 @@ class State:
         Should not be used directly! Use factory Methods instead.
         """
         self._tensor: torch.Tensor = tensor
-        self._prev_user_move: torch.Tensor = tensor
         self._captured_value: float = 0
         self._since_capture: int = 0
         self._board_size: tuple[int, int] = Board.board_size

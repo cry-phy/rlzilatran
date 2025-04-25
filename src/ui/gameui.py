@@ -10,12 +10,14 @@ from enum import Enum, auto
 class Tool(Enum):
     """Enum for handling selected tool."""
 
-    NONE = auto()
+    MOVE = auto()
     INMOVE = auto()
     ADDP = auto()
     ADDS = auto()
     ADDO = auto()
     REMOVE = auto()
+    FORCE_SELECT = auto()
+    FORCE_MOVE = auto()
 
 
 PIECE_TOOL_DICT = {
@@ -32,7 +34,7 @@ class GameUI:
         """Initialize window."""
         self.root = root
         self.game = game
-        self.selected: Tool = Tool.NONE
+        self.selected: Tool = Tool.MOVE
         self.selected_var: tk.IntVar = tk.IntVar(value=self.selected.value)
 
         # --- Menu Bar ---
@@ -64,10 +66,16 @@ class GameUI:
             )
         toolmenu.add_separator()
         toolmenu.add_radiobutton(
-            label="None",
+            label="MOVE",
             variable=self.selected_var,
-            value=Tool.NONE.value,
-            command=lambda: self._select_tool(Tool.NONE),
+            value=Tool.MOVE.value,
+            command=lambda: self._select_tool(Tool.MOVE),
+        )
+        toolmenu.add_radiobutton(
+            label="Force",
+            variable=self.selected_var,
+            value=Tool.FORCE_SELECT.value,
+            command=lambda: self._select_tool(Tool.FORCE_SELECT),
         )
         menubar.add_cascade(label="Tools", menu=toolmenu)
         root.config(menu=menubar)
@@ -140,7 +148,7 @@ class GameUI:
 
     def _clear_tool(self, event: Event) -> None:
         """Clear tool selection."""
-        self._select_tool(Tool.NONE)
+        self._select_tool(Tool.MOVE)
 
     def _get_cell_boundaries(self, x: int, y: int) -> tuple[int, int, int, int]:
         """Find boundary of cell for drawing Board."""
@@ -163,11 +171,11 @@ class GameUI:
         for y in range(self.ROWS):
             for x in range(self.COLUMNS):
                 xf: float = (x + 0.5) * self.CELL_SIZE
-                yf: float = (y + 0.1) * self.CELL_SIZE
+                yf: float = (y + 0.9) * self.CELL_SIZE
                 self.canvas.create_text(
                     xf,
                     yf,
-                    text=f"{x}   {y}",
+                    text=f"{x} {y}",
                     fill="gray",
                     font=(f"Helvetica {self.SMALL_FONT}"),
                 )
@@ -194,7 +202,7 @@ class GameUI:
 
     def draw_selected(self) -> None:
         """Draw selected square."""
-        if self.selected == Tool.INMOVE:
+        if self.selected in (Tool.INMOVE, Tool.FORCE_MOVE):
             self.canvas.create_rectangle(
                 *self._get_cell_boundaries(*self.selected_position),
                 outline="black",
@@ -241,35 +249,39 @@ class GameUI:
         """Recognize cell click."""
         x: int = event.x // self.CELL_SIZE
         y: int = event.y // self.CELL_SIZE
+        print(self.selected)
         match self.selected:
-            case Tool.NONE:
+            case Tool.MOVE:
                 if self.first_click_validity(x, y):
                     self.select_square(x, y)
+                    self._select_tool(Tool.INMOVE)
             case Tool.INMOVE:
                 if self.second_click_validity(x, y):
                     self.move_piece(x, y)
-                self._select_tool(Tool.NONE)
+                self._select_tool(Tool.MOVE)
             case Tool.ADDP | Tool.ADDS | Tool.ADDO:
                 if not self.game.state.square_filled(x, y):
                     self.place_piece(x, y)
             case Tool.REMOVE:
                 self.remove_piece(x, y)
+            case Tool.FORCE_SELECT:
+                if self.game.state.square_filled(x, y):
+                    self.select_square(x, y)
+                    self._select_tool(Tool.FORCE_MOVE)
+            case Tool.FORCE_MOVE:
+                self.move_piece(x, y)
+                self._select_tool(Tool.FORCE_SELECT)
         self.redraw_board()
 
     def select_square(self, x: int, y: int):
         """Select certain square."""
-        if self.selected == Tool.NONE:
-            self.selected_position = (x, y)
-            self.possible_moves = self.game.get_piece_targets(x, y)
-            self._select_tool(Tool.INMOVE)
+        self.selected_position = (x, y)
+        self.possible_moves = self.game.get_piece_targets(x, y)
+        self._select_tool(Tool.INMOVE)
 
     def first_click_validity(self, x: int, y: int) -> bool:
         """Check whether square is valid for selection."""
-        return (
-            self.game.state.get_state()[:, x, y].sum(axis=0)
-            and Board.player_half(y)
-            and self.selected == Tool.NONE
-        )
+        return self.game.state.get_state()[:, x, y].sum(axis=0) and Board.player_half(y)
 
     def second_click_validity(self, x: int, y: int) -> bool:
         """Check whether square is valid for move."""
