@@ -39,10 +39,12 @@ class GameUI:
         # --- Menu Bar ---
         menubar = Menu(root)
         filemenu = Menu(menubar, tearoff=0)
-        filemenu.add_command(label="Save", command=self.on_save)
-        filemenu.add_command(label="Load", command=self.on_load)
+        filemenu.add_command(label="Save", accelerator="Ctrl+S", command=self.on_save)
+        filemenu.add_command(label="Load", accelerator="Ctrl+O", command=self.on_load)
         filemenu.add_separator()
-        filemenu.add_command(label="Empty", command=self.new_empty)
+        filemenu.add_command(
+            label="Empty", accelerator="Ctrl+N", command=self.new_empty
+        )
         filemenu.add_command(label="Restart", command=self.on_restart)
         filemenu.add_separator()
         filemenu.add_command(label="Quit", command=root.quit)
@@ -60,6 +62,7 @@ class GameUI:
             value=Tool.ADDS.value,
             command=lambda: self._select_tool(Tool.ADDS),
         )
+
         toolmenu.add_radiobutton(
             label="O",
             variable=self.selected_var,
@@ -97,8 +100,10 @@ class GameUI:
         self.draw_board()
 
         self.canvas.bind("<Button-1>", self.on_click)
-
         self.canvas.bind("<Button-2>", self._clear_tool)
+        root.bind_all("<Control-s>", lambda e: self.on_save())
+        root.bind_all("<Control-o>", lambda e: self.on_load())
+        root.bind_all("<Control-n>", lambda e: self.new_empty())
 
     def _select_tool(self, tool: Tool) -> None:
         """Centralize tool selection logic."""

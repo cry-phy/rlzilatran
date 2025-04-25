@@ -1,4 +1,4 @@
-from game.utils import board_generator
+from src.game.utils import board_generator
 import torch
 
 
@@ -17,9 +17,15 @@ class State:
         Should not be used directly! Use factory Methods instead.
         """
         self._tensor: torch.Tensor = tensor
-        self._moves: torch.Tensor
+        self._prev_user_move: torch.Tensor = tensor
         self._captured_value: float = 0
-        self._board_size = board_generator.board_size()
+        self._since_capture: int = 0
+        self._board_size: tuple[int, int] = board_generator.board_size()
+
+    @property
+    def tensor_reference(self) -> torch.Tensor:
+        """Provide access to base."""
+        return self._tensor
 
     @classmethod
     def initial_state(cls) -> "State":
@@ -36,6 +42,13 @@ class State:
         """Generate State from state Tensor."""
         return cls(tensor)
 
+    @classmethod
+    def from_file(cls, path: str) -> "State":
+        """Load directly from a file."""
+        instance = cls(board_generator.empty_board())
+        instance.load(path)
+        return instance
+
     def set_state(self, tensor: torch.Tensor) -> None:
         """Set state Tensor."""
         self._tensor = tensor
@@ -47,6 +60,10 @@ class State:
     def square_filled(self, x: int, y: int) -> bool:
         """Return if th square has pieces on it."""
         return bool(self._tensor[:, x, y].sum(axis=0))
+
+    def repeat_move(self) -> bool:
+        """Check whether move was made right before."""
+        return torch.allclose(self._tensor, self._prev_user_move)
 
     def check_move(self, x1: int, y1: int, x2: int, y2: int) -> bool:
         """Check whether move is valid."""
@@ -64,7 +81,10 @@ class State:
         capture = torch.where(
             self._tensor[:, x2, y2] != 0, board_generator.layer_values(), 0
         )
-        self._captured_value += capture.sum()
+        capture_value = capture.sum()
+        if capture_value != 0:
+            self._since_capture += 1
+            self._captured_value += capture_value
         # Benchmarked this: Faster than setting with add/remove_piece and where.
         self._tensor[:, x2, y2] = self._tensor[:, x1, y1]
         self._tensor[:, x1, y1] = 0
@@ -112,3 +132,10 @@ class State:
     def load(self, path: str) -> None:
         """Load game state from torch tensor file."""
         self._tensor = torch.load(path)
+
+    def __eq__(self, other: "State") -> bool:
+        """Compare states to each other."""
+        return (
+            torch.allclose(self._tensor, other.tensor_reference())
+            and self._captured_value == other.captured_value()
+        )
