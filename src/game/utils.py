@@ -105,13 +105,17 @@ class __BoardMaster:
 
     def generate_p_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
         """Pregenerate moves for Private."""
+        # benchmarked against ray casting.
         move_targets = self._PRIVATE_MOVES + torch.IntTensor([x, y])
+        in_out_mask = self.valid_positions(move_targets)
+        real_move_targets = move_targets[in_out_mask]
         own_mask = state.tensor_reference[self.num_pieces :, :, :].sum(dim=0).to(bool)
-        keep = ~own_mask[move_targets[:, 0], move_targets[:, 1]]
-        return move_targets[keep]
+        keep = ~own_mask[real_move_targets[:, 0], real_move_targets[:, 1]]
+        return real_move_targets[keep]
 
     def generate_s_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
         """Pregenerate moves for Sergeant."""
+        # benchmarked against ray casting.
         moves = []
         origin = torch.IntTensor([x, y])
         own_mask = state.tensor_reference[self.num_pieces :, :, :].sum(dim=0).to(bool)
@@ -130,6 +134,7 @@ class __BoardMaster:
 
     def generate_o_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
         """Pregenerate moves for Officer."""
+        # benchmarked against ray casting.
         moves = []
         origin = torch.IntTensor([x, y])
         own_mask = state.tensor_reference[self.num_pieces :, :, :].sum(dim=0).to(bool)
@@ -199,7 +204,7 @@ class __BoardMaster:
         """Get value from piece."""
         return self._piece_value_dict[piece]
 
-    def moves_from_piece(self, piece: str) -> Callable:
+    def moves_from_piece(self, piece: str) -> Callable[[int, int, "State"], int]:
         """Get moves from piece."""
         return self._piece_move_dict[piece]
 

@@ -28,10 +28,9 @@ PIECE_TOOL_DICT = {
 class GameUI:
     """Game UI for debugging and later play."""
 
-    CELL_SIZE = 80
-
     def __init__(self, root, game: Game) -> None:
         """Initialize window."""
+        self.root = root
         self.game = game
         self.selected: Tool = Tool.NONE
         self.selected_var: tk.IntVar = tk.IntVar(value=self.selected.value)
@@ -49,32 +48,20 @@ class GameUI:
         filemenu.add_separator()
         filemenu.add_command(label="Quit", command=root.quit)
         menubar.add_cascade(label="File", menu=filemenu)
-        toolmenu = tk.Menu(menubar, tearoff=0)
-        toolmenu.add_radiobutton(
-            label="P",
-            variable=self.selected_var,
-            value=Tool.ADDP.value,
-            command=lambda: self._select_tool(Tool.ADDP),
-        )
-        toolmenu.add_radiobutton(
-            label="S",
-            variable=self.selected_var,
-            value=Tool.ADDS.value,
-            command=lambda: self._select_tool(Tool.ADDS),
-        )
 
-        toolmenu.add_radiobutton(
-            label="O",
-            variable=self.selected_var,
-            value=Tool.ADDO.value,
-            command=lambda: self._select_tool(Tool.ADDO),
-        )
-        toolmenu.add_radiobutton(
-            label="X",
-            variable=self.selected_var,
-            value=Tool.REMOVE.value,
-            command=lambda: self._select_tool(Tool.REMOVE),
-        )
+        toolmenu = tk.Menu(menubar, tearoff=0)
+        for label, tool in [
+            ("P", Tool.ADDP),
+            ("S", Tool.ADDS),
+            ("O", Tool.ADDO),
+            ("X", Tool.REMOVE),
+        ]:
+            toolmenu.add_radiobutton(
+                label=label,
+                variable=self.selected_var,
+                value=tool.value,
+                command=lambda t=tool: self._select_tool(t),
+            )
         toolmenu.add_separator()
         toolmenu.add_radiobutton(
             label="None",
@@ -85,26 +72,65 @@ class GameUI:
         menubar.add_cascade(label="Tools", menu=toolmenu)
         root.config(menu=menubar)
 
-        self.selected_position: tuple[int, int] = (-1, -1)
-        self.selected_piece: str = ""
-        self.possible_moves: torch.IntTensor = None
+        # --- Main Frame ---
+        self.main_frame = tk.Frame(root)
+        self.main_frame.grid(row=0, column=0, sticky="nsew")
+        root.grid_rowconfigure(0, weight=1)
+        root.grid_columnconfigure(0, weight=1)
 
         # --- Canvas for Board ---
         self.COLUMNS, self.ROWS = Board.board_size
+        self.CELL_SIZE: int = 80
+        self.FONT_SIZE: int = 15
+        self.SMALL_FONT: int = 10
+        self.initial_resize_done = False
+
         canvas_width = self.COLUMNS * self.CELL_SIZE
         canvas_height = self.ROWS * self.CELL_SIZE
         self.canvas = tk.Canvas(
-            root, width=canvas_width, height=canvas_height, bg="white"
+            self.main_frame,
+            width=canvas_width,
+            height=canvas_height,
+            bg="white",
         )
-        self.canvas.pack(padx=10, pady=10)
+        self.canvas.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self.main_frame.grid_rowconfigure(0, weight=1)
+        self.main_frame.grid_columnconfigure(0, weight=1)
+        root.after(0, lambda: self._on_resize(self.canvas))
+
+        self.canvas.bind("<Configure>", self._on_resize)
+        self.canvas.bind("<Button-1>", self.on_click)
+        self.canvas.bind("<Button-2>", self._clear_tool)
+        root.bind_all("<Control-s>", lambda _: self.on_save())
+        root.bind_all("<Control-o>", lambda _: self.on_load())
+        root.bind_all("<Control-n>", lambda _: self.new_empty())
 
         self.draw_board()
 
-        self.canvas.bind("<Button-1>", self.on_click)
-        self.canvas.bind("<Button-2>", self._clear_tool)
-        root.bind_all("<Control-s>", lambda e: self.on_save())
-        root.bind_all("<Control-o>", lambda e: self.on_load())
-        root.bind_all("<Control-n>", lambda e: self.new_empty())
+    def _on_resize(self, event_or_widget) -> None:
+        """Resize canvas and scale/redraw contents proportionally."""
+        if hasattr(event_or_widget, "width"):
+            w, h = event_or_widget.width, event_or_widget.height
+        else:
+            w = self.canvas.winfo_width()
+            h = self.canvas.winfo_height()
+        if not self.initial_resize_done:
+            self.width, self.height = w, h
+            self.initial_resize_done = True
+            return
+        if w <= 1 or h <= 1:
+            return
+        real_w, real_h = w * 0.96, h * 0.96
+        self.CELL_SIZE = int(real_h / self.ROWS)
+        self.FONT_SIZE = int(15 * self.CELL_SIZE / 80)
+        self.SMALL_FONT = int(2 * self.FONT_SIZE / 3)
+        wscale = real_w / self.width
+        hscale = real_h / self.height
+        self.canvas.scale("all", 0, 0, wscale, hscale)
+        self.width = self.COLUMNS * self.CELL_SIZE
+        self.height = self.ROWS * self.CELL_SIZE
+        self.canvas.config(width=real_w, height=real_h)
+        self.redraw_board()
 
     def _select_tool(self, tool: Tool) -> None:
         """Centralize tool selection logic."""
@@ -143,7 +169,7 @@ class GameUI:
                     yf,
                     text=f"{x}   {y}",
                     fill="gray",
-                    font=("Helvetica 10"),
+                    font=(f"Helvetica {self.SMALL_FONT}"),
                 )
 
     def draw_pieces(self) -> None:
@@ -163,7 +189,7 @@ class GameUI:
                     float(y),
                     text=piece,
                     fill="black",
-                    font=("Helvetica 15 bold"),
+                    font=(f"Helvetica {self.FONT_SIZE} bold"),
                 )
 
     def draw_selected(self) -> None:
@@ -220,10 +246,9 @@ class GameUI:
                 if self.first_click_validity(x, y):
                     self.select_square(x, y)
             case Tool.INMOVE:
-                if (x, y) == self.selected_position:
-                    self._select_tool(Tool.NONE)
                 if self.second_click_validity(x, y):
                     self.move_piece(x, y)
+                self._select_tool(Tool.NONE)
             case Tool.ADDP | Tool.ADDS | Tool.ADDO:
                 if not self.game.state.square_filled(x, y):
                     self.place_piece(x, y)
@@ -248,7 +273,7 @@ class GameUI:
 
     def second_click_validity(self, x: int, y: int) -> bool:
         """Check whether square is valid for move."""
-        return self.selected == Tool.INMOVE and self.game.state.check_move(
+        return self.game.state.check_move(
             self.selected_position[0], self.selected_position[1], x, y
         )
 
@@ -257,7 +282,6 @@ class GameUI:
         self.game.state.make_move(
             self.selected_position[0], self.selected_position[1], x, y
         )
-        self._select_tool(Tool.NONE)
 
     def place_piece(self, x: int, y: int) -> None:
         """Place piece according to current tool on square."""

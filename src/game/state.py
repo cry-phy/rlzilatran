@@ -65,17 +65,20 @@ class State:
         """Get layers with pieces on square."""
         return torch.where(self._tensor[:, x, y])[0]
 
-    def repeat_move(self) -> bool:
-        """Check whether move was made right before."""
-        return torch.allclose(self._tensor, self._prev_user_move)
+    def check_piece_move(self, x1: int, y1: int, x2: int, y2: int) -> bool:
+        """Check whether attempted move is in valid moves for piece."""
+        target = torch.IntTensor([x2, y2])
+        piece = Board.piece_from_layer(self.get_layer(x1, y1))
+        moves = Board.moves_from_piece(piece)(x1, y1, self)
+        return torch.any(torch.all(moves == target, dim=1))
 
     def check_move(self, x1: int, y1: int, x2: int, y2: int) -> bool:
         """Check whether move is valid."""
-        return not (
+        return (
             Board.valid_position(x1, y1)
             and Board.valid_position(x2, y2)
-            and self.square_filled(x2, y2)
-            and Board.player_half(y2)
+            and Board.player_half(y1)
+            and self.check_piece_move(x1, y1, x2, y2)
         )
 
     def make_move(self, x1: int, y1: int, x2: int, y2: int) -> None:
