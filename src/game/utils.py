@@ -1,60 +1,90 @@
 import torch
 from copy import deepcopy
-from functools import cache
+from typing import TYPE_CHECKING, Callable
 
-__all__ = ["board_generator"]
+if TYPE_CHECKING:
+    from game.state import State
+
+__all__ = ["Board"]
+
+PRIVATE_POSITIONS = torch.IntTensor(
+    [
+        (2, 1),
+        (1, 2),
+        (2, 2),
+        (-3, -2),
+        (-2, -3),
+        (-3, -3),
+    ]
+).T
+SERGEANT_POSITIONS = torch.IntTensor(
+    [
+        (0, 2),
+        (1, 1),
+        (2, 0),
+        (-1, -3),
+        (-2, -2),
+        (-3, -1),
+    ]
+).T
+OFFICER_POSITIONS = torch.IntTensor(
+    [
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (-1, -1),
+        (-1, -2),
+        (-2, -1),
+    ]
+).T
 
 
-class __BoardGenerator:
+class __BoardMaster:
     """Generator for board tensors.
 
     This is a module level singleton, i. e. being loaded from config at import time.
     TODO: Extend to read config Files.
     """
 
+    _PRIVATE_MOVES = torch.IntTensor(
+        [
+            (-1, -1),
+            (-1, 1),
+            (1, 1),
+            (1, -1),
+        ]
+    )
+    _SERGEANT_DIRECTIONS = torch.IntTensor(
+        [
+            (-1, 0),
+            (0, 1),
+            (1, 0),
+            (0, -1),
+        ]
+    )
+    _OFFICER_DIRECTIONS = torch.IntTensor(
+        [
+            (-1, -1),
+            (-1, 0),
+            (-1, 1),
+            (0, 1),
+            (1, 1),
+            (1, 0),
+            (1, -1),
+            (0, -1),
+        ]
+    )
+
     def __init__(self) -> None:
         """Empty initializer use Factory methods instead."""
-        PRIVATE_LAYER = 2
-        PRIVATE_POSITIONS = torch.IntTensor(
-            [
-                (2, 1),
-                (1, 2),
-                (2, 2),
-                (-3, -2),
-                (-2, -3),
-                (-3, -3),
-            ]
-        ).T
-        SERGEANT_LAYER = 1
-        SERGEANT_POSITIONS = torch.IntTensor(
-            [
-                (0, 2),
-                (1, 1),
-                (2, 0),
-                (-1, -3),
-                (-2, -2),
-                (-3, -1),
-            ]
-        ).T
-        OFFICER_LAYER = 0
-        OFFICER_POSITIONS = torch.IntTensor(
-            [
-                (0, 0),
-                (0, 1),
-                (1, 0),
-                (-1, -1),
-                (-1, -2),
-                (-2, -1),
-            ]
-        ).T
         self._pieces = ["P", "S", "O"]
         self.BOARD_SIZE = (4, 8)
         self.NUM_LAYERS = 2 * len(self._pieces)
         self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
         self._piece_layer_dict = {
-            "P": PRIVATE_LAYER,
-            "S": SERGEANT_LAYER,
-            "O": OFFICER_LAYER,
+            "P": 0,
+            "S": 1,
+            "O": 2,
         }
         self._piece_value_dict = {
             "P": 1,
@@ -62,9 +92,9 @@ class __BoardGenerator:
             "O": 3,
         }
         self._piece_move_dict = {
-            "P": None,
-            "S": None,
-            "O": None,
+            "P": self.generate_p_moves,
+            "S": self.generate_s_moves,
+            "O": self.generate_o_moves,
         }
         self._initial_piece_dictionary = {
             "P": PRIVATE_POSITIONS,
@@ -72,14 +102,62 @@ class __BoardGenerator:
             "O": OFFICER_POSITIONS,
         }
         self._board: torch.Tensor = torch.zeros(self.BOARD_DIMENSIONS)
-        self._layer_values: torch.Tensor = torch.zeros(self.NUM_LAYERS)
-        for piece in self._pieces:
-            self._layer_values[self._piece_layer_dict[piece]] = self._piece_value_dict[
-                piece
-            ]
-            self._layer_values[-(self._piece_layer_dict[piece] + 1)] = (
-                self._piece_value_dict[piece]
-            )
+
+    def generate_p_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
+        """Pregenerate moves for Private."""
+        move_targets = self._PRIVATE_MOVES + torch.IntTensor([x, y])
+        own_mask = state.tensor_reference[self.num_pieces :, :, :].sum(dim=0).to(bool)
+        keep = ~own_mask[move_targets[:, 0], move_targets[:, 1]]
+        return move_targets[keep]
+
+    def generate_s_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
+        """Pregenerate moves for Sergeant."""
+        moves = []
+        origin = torch.IntTensor([x, y])
+        own_mask = state.tensor_reference[self.num_pieces :, :, :].sum(dim=0).to(bool)
+        other_mask = state.tensor_reference[: self.num_pieces, :, :].sum(dim=0).to(bool)
+        for direction in self._SERGEANT_DIRECTIONS:
+            for i in range(1, 3):
+                xi, yi = origin + i * direction
+                if not self.valid_position(xi, yi):
+                    break
+                if own_mask[xi, yi]:
+                    break
+                moves.append((xi, yi))
+                if other_mask[xi, yi]:
+                    break
+        return torch.IntTensor(moves)
+
+    def generate_o_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
+        """Pregenerate moves for Officer."""
+        moves = []
+        origin = torch.IntTensor([x, y])
+        own_mask = state.tensor_reference[self.num_pieces :, :, :].sum(dim=0).to(bool)
+        other_mask = state.tensor_reference[: self.num_pieces, :, :].sum(dim=0).to(bool)
+        for direction in self._OFFICER_DIRECTIONS:
+            for i in range(1, self.BOARD_SIZE[1] + 1):
+                xi, yi = origin + i * direction
+                if not self.valid_position(xi, yi):
+                    break
+                if own_mask[xi, yi]:
+                    break
+                moves.append((xi, yi))
+                if other_mask[xi, yi]:
+                    break
+        return torch.IntTensor(moves)
+
+    def _set_piece_position(self, key: str) -> None:
+        """Set all piece positions."""
+        x, y = self._initial_piece_dictionary[key]
+        self._board[self._piece_layer_dict[key]][x, y] = 1
+
+    def _set_pieces(self) -> None:
+        for key in self._pieces:
+            self._set_piece_position(key)
+        self._board[len(self._pieces) :, :, : int(self.BOARD_SIZE[1] / 2)] = (
+            self._board[: len(self._pieces), :, : int(self.BOARD_SIZE[1] / 2)]
+        )
+        self._board[: len(self._pieces), :, : int(self.BOARD_SIZE[1] / 2)] = 0
 
     def empty_board(self) -> torch.Tensor:
         """Get empty board."""
@@ -90,44 +168,59 @@ class __BoardGenerator:
         self._set_pieces()
         return self._board.clone()
 
+    @property
+    def num_pieces(self) -> int:
+        """Return number of pieces."""
+        return len(self._pieces)
+
+    @property
     def board_size(self) -> tuple[int, int]:
         """Allow access to the board size."""
         return deepcopy(self.BOARD_SIZE)
 
+    @property
     def num_layers(self) -> int:
         """Get number of layers."""
         return self.NUM_LAYERS
 
+    @property
+    def pieces(self) -> list[str]:
+        return self._pieces.copy()
+
     def player_half(self, y: int) -> bool:
         """Return if y is on the player side of the board."""
-        return y < int(self.BOARD_SIZE[1] / 2)
+        return y < self.BOARD_SIZE[1] // 2
 
-    def pieces(self) -> list[str]:
-        return deepcopy(self._pieces)
+    def layer_from_piece(self, piece: str) -> int:
+        """Get layer from piece."""
+        return self._piece_layer_dict[piece]
 
-    def piece_layer_dict(self) -> dict[str, int]:
-        return self._piece_layer_dict
+    def value_from_piece(self, piece: str) -> float:
+        """Get value from piece."""
+        return self._piece_value_dict[piece]
 
-    def layer_value(self, index: int) -> float:
-        """Return value of layer piece."""
-        return self._layer_values[index]
+    def moves_from_piece(self, piece: str) -> Callable:
+        """Get moves from piece."""
+        return self._piece_move_dict[piece]
 
-    @cache
-    def layer_values(self) -> torch.Tensor:
-        return self._layer_values.clone()
+    def piece_from_layer(self, layer: int) -> str:
+        return self._pieces[layer % len(self._pieces)]
 
-    def _set_piece_position(self, key: str) -> None:
-        """Get Private Board."""
-        x, y = self._initial_piece_dictionary[key]
-        self._board[self._piece_layer_dict[key]][x, y] = 1
-
-    def _set_pieces(self) -> None:
-        for key in self._pieces:
-            self._set_piece_position(key)
-        self._board[len(self._pieces) :, :, int(self.BOARD_SIZE[1] / 2) :] = (
-            self._board[: len(self._pieces), :, int(self.BOARD_SIZE[1] / 2) :]
+    def valid_position(self, x: int, y: int) -> bool:
+        return (
+            (x >= 0)
+            and (x < self.BOARD_SIZE[0])
+            and (y >= 0)
+            and (y < self.BOARD_SIZE[1])
         )
-        self._board[: len(self._pieces), :, int(self.BOARD_SIZE[1] / 2) :] = 0
+
+    def valid_positions(self, positions: torch.Tensor) -> torch.BoolTensor:
+        return (
+            (positions[:, 0] >= 0)
+            & (positions[:, 0] < self.BOARD_SIZE[0])
+            & (positions[:, 1] >= 0)
+            & (positions[:, 1] < self.BOARD_SIZE[1])
+        )
 
 
-board_generator = __BoardGenerator()
+Board = __BoardMaster()

@@ -1,14 +1,1 @@
 STARTBOARD,ENDBOARD,MOVEX1,MOVEY1,MOVEX2,MOVEY2,VALIDITY
-s13.pt,s11.pt,1,3,1,1,1
-s13.pt,s12.pt,1,3,1,2,1
-s13.pt,s14.pt,1,3,1,4,1
-s13.pt,s15.pt,1,3,1,5,1
-s13.pt,s03.pt,1,3,0,3,1
-s11.pt,s31.pt,1,3,3,1,1
-s13.pt,s31.pt,1,3,3,1,0
-s13.pt,s22.pt,1,3,2,2,0
-s13.pt,s16.pt,1,3,1,6,0
-s13.pt,s10.pt,1,3,1,0,0
-s16.pt,s13.pt,1,6,1,3,0
-p11s13.pt,p11.pt,1,3,1,1,0
-p12s13.pt,p12s11.pt,1,3,1,1,0

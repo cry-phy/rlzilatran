@@ -1,4 +1,4 @@
-from src.game.utils import board_generator
+from game.utils import Board
 import torch
 
 
@@ -20,7 +20,7 @@ class State:
         self._prev_user_move: torch.Tensor = tensor
         self._captured_value: float = 0
         self._since_capture: int = 0
-        self._board_size: tuple[int, int] = board_generator.board_size()
+        self._board_size: tuple[int, int] = Board.board_size
 
     @property
     def tensor_reference(self) -> torch.Tensor:
@@ -30,12 +30,12 @@ class State:
     @classmethod
     def initial_state(cls) -> "State":
         """Generate Initial game State."""
-        return cls(board_generator.initial_board())
+        return cls(Board.initial_board())
 
     @classmethod
     def empty(cls) -> "State":
         """Generate empty state."""
-        return cls(board_generator.empty_board())
+        return cls(Board.empty_board())
 
     @classmethod
     def from_tensor(cls, tensor: torch.Tensor) -> "State":
@@ -45,7 +45,7 @@ class State:
     @classmethod
     def from_file(cls, path: str) -> "State":
         """Load directly from a file."""
-        instance = cls(board_generator.empty_board())
+        instance = cls(Board.empty_board())
         instance.load(path)
         return instance
 
@@ -61,6 +61,10 @@ class State:
         """Return if th square has pieces on it."""
         return bool(self._tensor[:, x, y].sum(axis=0))
 
+    def get_layer(self, x: int, y: int) -> torch.Tensor:
+        """Get layers with pieces on square."""
+        return torch.where(self._tensor[:, x, y])[0]
+
     def repeat_move(self) -> bool:
         """Check whether move was made right before."""
         return torch.allclose(self._tensor, self._prev_user_move)
@@ -68,21 +72,18 @@ class State:
     def check_move(self, x1: int, y1: int, x2: int, y2: int) -> bool:
         """Check whether move is valid."""
         return not (
-            self._board_size[0] >= x1 >= 0
-            and self._board_size[1] >= y1 >= 0
-            and self._board_size[0] >= x2 >= 0
-            and self._board_size[1] >= y2 >= 0
+            Board.valid_position(x1, y1)
+            and Board.valid_position(x2, y2)
             and self.square_filled(x2, y2)
-            and board_generator.player_half(y2)
+            and Board.player_half(y2)
         )
 
     def make_move(self, x1: int, y1: int, x2: int, y2: int) -> None:
         """Make move corresponding to index."""
-        capture = torch.where(
-            self._tensor[:, x2, y2] != 0, board_generator.layer_values(), 0
-        )
-        capture_value = capture.sum()
-        if capture_value != 0:
+        capture_layer: torch.Tensor = torch.where(self._tensor[:, x2, y2])[0]
+        if capture_layer.nelement() != 0:
+            capture_piece = Board.piece_from_layer(capture_layer)
+            capture_value = Board.value_from_piece(capture_piece)
             self._since_capture += 1
             self._captured_value += capture_value
         # Benchmarked this: Faster than setting with add/remove_piece and where.
@@ -91,19 +92,16 @@ class State:
 
     def add_piece(self, x: int, y: int, piece: str) -> None:
         """Add Piece to certain layer."""
-        layer = board_generator.piece_layer_dict()[piece]
-        if not board_generator.player_half(y):
-            layer = -(layer + 1)
-        print(x, y, layer)
+        layer: torch.Tensor = Board.layer_from_piece(piece)
+        if not Board.player_half(y):
+            layer += Board.num_pieces
         self._tensor[layer, x, y] = 1
 
     def remove_piece(self, x: int, y: int, piece: str) -> None:
         """Remove certain piece."""
-        layer = board_generator.piece_layer_dict()[piece]
-        if not board_generator.player_half(y):
-            layer = -(layer + 1)
-        print(x, y, layer)
+        layer = Board.layer_from_piece(piece)
         self._tensor[layer, x, y] = 0
+        self._tensor[layer + Board.num_pieces, x, y] = 0
 
     def clear_square(self, x: int, y: int) -> None:
         """Clear square entirely."""
@@ -123,7 +121,7 @@ class State:
 
     def reset(self) -> None:
         """Set to initial state."""
-        self._tensor = board_generator.initial_board()
+        self._tensor = Board.initial_board()
 
     def save(self, path: str) -> None:
         """Save game state to torch tensor file."""

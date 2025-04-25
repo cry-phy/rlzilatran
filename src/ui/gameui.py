@@ -1,6 +1,6 @@
 from game.game import Game
 from game.state import State
-from game.utils import board_generator
+from game.utils import Board
 import tkinter as tk
 from tkinter import Event, Menu, filedialog, messagebox
 import torch
@@ -87,9 +87,10 @@ class GameUI:
 
         self.selected_position: tuple[int, int] = (-1, -1)
         self.selected_piece: str = ""
+        self.possible_moves: torch.IntTensor = None
 
         # --- Canvas for Board ---
-        self.COLUMNS, self.ROWS = board_generator.board_size()
+        self.COLUMNS, self.ROWS = Board.board_size
         canvas_width = self.COLUMNS * self.CELL_SIZE
         canvas_height = self.ROWS * self.CELL_SIZE
         self.canvas = tk.Canvas(
@@ -131,14 +132,27 @@ class GameUI:
                     *self._get_cell_boundaries(x, y), outline="black", fill="lightgray"
                 )
 
+    def draw_grid_coords(self) -> None:
+        """Draw coordinates for debugging."""
+        for y in range(self.ROWS):
+            for x in range(self.COLUMNS):
+                xf: float = (x + 0.5) * self.CELL_SIZE
+                yf: float = (y + 0.1) * self.CELL_SIZE
+                self.canvas.create_text(
+                    xf,
+                    yf,
+                    text=f"{x}   {y}",
+                    fill="gray",
+                    font=("Helvetica 10"),
+                )
+
     def draw_pieces(self) -> None:
         """Draw pieces."""
         current_state = self.game.state.get_state()
-        piece_layer_dict = board_generator.piece_layer_dict()
-        for piece in board_generator.pieces():
+        for piece in Board.pieces:
             piece_layer = (
-                current_state[piece_layer_dict[piece]]
-                + current_state[-(piece_layer_dict[piece] + 1)]
+                current_state[Board.layer_from_piece(piece)]
+                + current_state[Board.layer_from_piece(piece) + Board.num_pieces]
             )
             positions: tuple[torch.Tensor, torch.Tensor] = torch.where(piece_layer)
             xs: torch.Tensor = (positions[0] + 0.5) * self.CELL_SIZE
@@ -160,6 +174,12 @@ class GameUI:
                 outline="black",
                 fill="lightblue",
             )
+            for move in self.possible_moves:
+                self.canvas.create_rectangle(
+                    *self._get_cell_boundaries(int(move[0]), int(move[1])),
+                    outline="black",
+                    fill="orchid1",
+                )
 
     def on_save(self) -> None:
         """Save current game as pickle."""
@@ -200,6 +220,8 @@ class GameUI:
                 if self.first_click_validity(x, y):
                     self.select_square(x, y)
             case Tool.INMOVE:
+                if (x, y) == self.selected_position:
+                    self._select_tool(Tool.NONE)
                 if self.second_click_validity(x, y):
                     self.move_piece(x, y)
             case Tool.ADDP | Tool.ADDS | Tool.ADDO:
@@ -213,13 +235,14 @@ class GameUI:
         """Select certain square."""
         if self.selected == Tool.NONE:
             self.selected_position = (x, y)
+            self.possible_moves = self.game.get_piece_targets(x, y)
             self._select_tool(Tool.INMOVE)
 
     def first_click_validity(self, x: int, y: int) -> bool:
         """Check whether square is valid for selection."""
         return (
             self.game.state.get_state()[:, x, y].sum(axis=0)
-            and board_generator.player_half(y)
+            and Board.player_half(y)
             and self.selected == Tool.NONE
         )
 
@@ -249,6 +272,7 @@ class GameUI:
         self.draw_grid()
         self.draw_selected()
         self.draw_pieces()
+        self.draw_grid_coords()
 
     def redraw_board(self) -> None:
         """Redraw game state."""
