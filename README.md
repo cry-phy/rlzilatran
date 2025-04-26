@@ -46,7 +46,20 @@ The loss function is given by:
 
 $$l = \sum_{t} (v_{\theta}(s_{t}) - z_{t})^2 - \pi_{t} \cdot \log(p_{\theta}(s_{t}))$$
 
-where $\pi_{t}$ is the estimate of the state through an outside estzimator such as described in the coming chapter.
+where $\pi_{t}$ is the estimate of the state through an outside estimator such as described in the coming chapter.
+
+The network itself takes a 4x8x52 input and retrieves a propability distribuion over a 4x8x41. The Input size is governed by the state representation of the pieces three pieces for each player on the 4x8 board making a single state representation 4x8x6. Eight previous states are also passed to the CNN with additional channels for:
+    - player to move
+    - captured value
+    - move since last capture
+    - move since repetition call
+This leads to the total channel number: $6 \cdot 8 + 4 = 52$
+
+The output tensor size is determined by the need to keep its size constant (from a technical standpoint as CNN output is constant in size). Therefore we need a channel for all moves a piece could make from each position. Invalid moves can be masked out later. The consideration therefore is that Officers cover all moves by all pieces, creating up to 40 theoretically possible move targets:
+    - straight move directions contribute 7 (one less than board length) targets each
+    - diagonal move directions contribute 3 (one less than board width) targets each
+    - a player can call a capture after 7 non capture moves that ends game after 7 more moves without capture
+For 4 straight and 4 diagonal directions we get: $4 \dot 3 + 4 \cdot 7 + 1 = 41$
 
 ### Monte Carlo Tree Search
 

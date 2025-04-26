@@ -4,6 +4,9 @@ from game.utils import Board
 from typing import Callable
 import torch
 import os
+import logging
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class Game:
@@ -16,6 +19,7 @@ class Game:
 
         Should not be used directly! Use factory Methods instead.
         """
+        logger.info("Generating Game.")
         self.state: State = state
         self.last_moves: deque[torch.IntTensor] = last_moves
 
@@ -41,11 +45,14 @@ class Game:
 
     def load(self, path: str) -> None:
         """Load game state from torch tensor file."""
-        self.state.load(path)
+        self.state = State.from_file(path)
 
     def make_move(self, x1: int, y1: int, x2: int, y2: int) -> None:
         """Make move."""
-        self.last_moves.appendleft(self.state.get_state())
+        logger.debug(
+            "Making move: (%s, %s), (%s, %s)", int(x1), int(y1), int(x2), int(y2)
+        )
+        self.last_moves.appendleft(self.state.state)
         self.state.make_move(x1, y1, x2, y2)
 
     def get_piece_targets(self, x: int, y: int) -> torch.Tensor:
@@ -55,6 +62,11 @@ class Game:
             piece: str = Board.piece_from_layer(layers)
             move_generator: Callable = Board.moves_from_piece(piece)
             return move_generator(x, y, self.state)
+
+    @property
+    def training_tensor(self) -> torch.Tensor:
+        """Stack the history and add additional information."""
+        torch.stack(self.last_moves)
 
 
 class RecordGame(Game):
@@ -68,13 +80,14 @@ class RecordGame(Game):
         Should not be used directly! Use factory Methods instead.
         """
         super().__init__(state, last_moves)
+        logger.info("Recording.")
         self.folder_name: str = folder_name
         self.recent_file_names: deque[str] = deque(maxlen=self.HIST_LEN)
 
     def _prep(self):
         """Prepare recording Folder."""
-        for tensor in self.last_moves:
-            self.recent_file_names.appendleft(f"{hex(hash(tensor))}.pt")
+        for _ in range(self.HIST_LEN):
+            self.recent_file_names.appendleft(self.get_state_name())
         if not self.folder_name.endswith(os.path.sep):
             self.folder_name += os.path.sep
         os.makedirs(self.folder_name, exist_ok=False)
@@ -93,11 +106,17 @@ class RecordGame(Game):
         last_moves.appendleft(Board.empty_board())
         return cls(Board.empty_board(), last_moves, folder_name)
 
+    def get_state_name(self) -> str:
+        """Hash the state to a file name."""
+        return f"{hex(hash(self.state.tensor_reference))}.pt"
+
     def record(self, x1: int, y1: int, x2: int, y2: int) -> None:
         """Record made move."""
+        self.recent_file_names.appendleft(self.get_state_name())
+        self.state.save(self.recent_file_names[0])
         with open(self.folder_name + "moves.csv") as f:
             f.write(
-                f"{self.recent_file_names[0]},{self.recent_file_names[0]},{x1},{y1},{x2},{y2}\n"
+                f"{self.recent_file_names[0]},{self.recent_file_names[1]},{x1},{y1},{x2},{y2}\n"
             )
 
     def make_move(self, x1: int, y1: int, x2: int, y2: int) -> None:

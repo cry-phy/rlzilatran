@@ -5,6 +5,9 @@ import tkinter as tk
 from tkinter import Event, Menu, filedialog, messagebox
 import torch
 from enum import Enum, auto
+import logging
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class Tool(Enum):
@@ -72,7 +75,7 @@ class GameUI:
             command=lambda: self._select_tool(Tool.MOVE),
         )
         toolmenu.add_radiobutton(
-            label="Force",
+            label="FORCE",
             variable=self.selected_var,
             value=Tool.FORCE_SELECT.value,
             command=lambda: self._select_tool(Tool.FORCE_SELECT),
@@ -132,6 +135,7 @@ class GameUI:
         self.CELL_SIZE = int(real_h / self.ROWS)
         self.FONT_SIZE = int(15 * self.CELL_SIZE / 80)
         self.SMALL_FONT = int(2 * self.FONT_SIZE / 3)
+        logger.debug("Resizing (CELL_SIZE, FONT_SIZE, SMALL_FONT) -> (%i, %i,%i,)")
         wscale = real_w / self.width
         hscale = real_h / self.height
         self.canvas.scale("all", 0, 0, wscale, hscale)
@@ -182,7 +186,7 @@ class GameUI:
 
     def draw_pieces(self) -> None:
         """Draw pieces."""
-        current_state = self.game.state.get_state()
+        current_state = self.game.state.state
         for piece in Board.pieces:
             piece_layer = (
                 current_state[Board.layer_from_piece(piece)]
@@ -216,10 +220,10 @@ class GameUI:
                 )
 
     def on_save(self) -> None:
-        """Save current game as pickle."""
+        """Save current game as json."""
         path = filedialog.asksaveasfilename(
-            defaultextension=".pt",
-            filetypes=[("PyTorch files", "*.pt"), ("All Files", "*.*")],
+            defaultextension=".json",
+            filetypes=[("State files", "*.json"), ("All Files", "*.*")],
         )
         if path:
             self.game.save(path)
@@ -228,8 +232,8 @@ class GameUI:
     def on_load(self) -> None:
         """Load game from pickled state."""
         path = filedialog.askopenfilename(
-            defaultextension=".pt",
-            filetypes=[("PyTorch files", "*.pt"), ("All Files", "*.*")],
+            defaultextension=".json",
+            filetypes=[("State files", "*.json"), ("All Files", "*.*")],
         )
         if path:
             self.game.load(path)
@@ -249,7 +253,7 @@ class GameUI:
         """Recognize cell click."""
         x: int = event.x // self.CELL_SIZE
         y: int = event.y // self.CELL_SIZE
-        print(self.selected)
+        logger.debug("Click registered: (%f, %f) -> (%i, %i)", event.x, event.y, x, y)
         match self.selected:
             case Tool.MOVE:
                 if self.first_click_validity(x, y):
@@ -281,7 +285,9 @@ class GameUI:
 
     def first_click_validity(self, x: int, y: int) -> bool:
         """Check whether square is valid for selection."""
-        return self.game.state.get_state()[:, x, y].sum(axis=0) and Board.player_half(y)
+        return self.game.state.state[:, x, y].sum(axis=0) and Board.player_half(
+            y, self.game.state.player
+        )
 
     def second_click_validity(self, x: int, y: int) -> bool:
         """Check whether square is valid for move."""

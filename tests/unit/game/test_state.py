@@ -6,19 +6,18 @@ import pandas as pd
 
 def test_state_load():
     """Test loading of state."""
-    state = State.initial_state()
-    state.load("tests/fixtures/boards/init_board.pt")
-    reference = torch.load("tests/fixtures/boards/init_board.pt")
-    assert torch.allclose(state.get_state(), reference)
+    state = State.from_file("tests/fixtures/boards/init_board.json")
+    reference = torch.load("tests/fixtures/boards/init_board.pt").to(dtype=torch.int32)
+    assert torch.allclose(state.state, reference)
 
 
 def test_state_saving():
     """Test state saving."""
-    reference = torch.load("tests/fixtures/boards/init_board.pt")
+    reference = torch.load("tests/fixtures/boards/init_board.pt").to(dtype=torch.int32)
     state = State.from_tensor(reference)
-    state.save("temp/state_saving_test.pt")
-    state_saved = torch.load("tests/fixtures/boards/init_board.pt")
-    assert torch.allclose(state.get_state(), state_saved)
+    state.save("temp/test_state_saving.json")
+    state_saved = State.from_file("temp/test_state_saving.json")
+    assert torch.allclose(state.state, state_saved.state)
 
 
 def state_move_validity(
@@ -71,4 +70,4 @@ def test_move_validity(
 ):
     """Run batch tests for move in states."""
     start_board.make_move(x1, y1, x2, y2)
-    assert torch.allclose(start_board.get_state(), end_board.get_state()) is validity
+    assert torch.allclose(start_board.state, end_board.state) is validity

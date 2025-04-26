@@ -1,6 +1,9 @@
 import torch
 from copy import deepcopy
 from typing import TYPE_CHECKING, Callable
+import logging
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from game.state import State
@@ -109,7 +112,7 @@ class __BoardMaster:
         move_targets = self._PRIVATE_MOVES + torch.IntTensor([x, y])
         in_out_mask = self.valid_positions(move_targets)
         real_move_targets = move_targets[in_out_mask]
-        own_mask = state.tensor_reference[self.num_pieces :, :, :].sum(dim=0).to(bool)
+        own_mask = state.get_player_mask(state.player)
         keep = ~own_mask[real_move_targets[:, 0], real_move_targets[:, 1]]
         return real_move_targets[keep]
 
@@ -118,8 +121,8 @@ class __BoardMaster:
         # benchmarked against ray casting.
         moves = []
         origin = torch.IntTensor([x, y])
-        own_mask = state.tensor_reference[self.num_pieces :, :, :].sum(dim=0).to(bool)
-        other_mask = state.tensor_reference[: self.num_pieces, :, :].sum(dim=0).to(bool)
+        own_mask = state.get_player_mask(state.player)
+        other_mask = state.get_player_mask(not state.player)
         for direction in self._SERGEANT_DIRECTIONS:
             for i in range(1, 3):
                 xi, yi = origin + i * direction
@@ -130,6 +133,8 @@ class __BoardMaster:
                 moves.append((xi, yi))
                 if other_mask[xi, yi]:
                     break
+        if not moves:
+            return torch.empty((0, 2), dtype=torch.int32)
         return torch.IntTensor(moves)
 
     def generate_o_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
@@ -137,8 +142,8 @@ class __BoardMaster:
         # benchmarked against ray casting.
         moves = []
         origin = torch.IntTensor([x, y])
-        own_mask = state.tensor_reference[self.num_pieces :, :, :].sum(dim=0).to(bool)
-        other_mask = state.tensor_reference[: self.num_pieces, :, :].sum(dim=0).to(bool)
+        own_mask = state.get_player_mask(state.player)
+        other_mask = state.get_player_mask(not state.player)
         for direction in self._OFFICER_DIRECTIONS:
             for i in range(1, self.BOARD_SIZE[1] + 1):
                 xi, yi = origin + i * direction
@@ -149,7 +154,13 @@ class __BoardMaster:
                 moves.append((xi, yi))
                 if other_mask[xi, yi]:
                     break
+        if not moves:
+            return torch.empty((0, 2), dtype=torch.int32)
         return torch.IntTensor(moves)
+
+    def _generate_move_tensor(self) -> torch.Tensor:
+        """Generate empty output tensor."""
+        torch.zeros()
 
     def _set_piece_position(self, key: str) -> None:
         """Set all piece positions."""
@@ -159,10 +170,10 @@ class __BoardMaster:
     def _set_pieces(self) -> None:
         for key in self._pieces:
             self._set_piece_position(key)
-        self._board[len(self._pieces) :, :, : int(self.BOARD_SIZE[1] / 2)] = (
-            self._board[: len(self._pieces), :, : int(self.BOARD_SIZE[1] / 2)]
-        )
-        self._board[: len(self._pieces), :, : int(self.BOARD_SIZE[1] / 2)] = 0
+        self._board[self.num_pieces :, :, self.num_pieces :] = self._board[
+            : self.num_pieces, :, self.num_pieces :
+        ]
+        self._board[: self.num_pieces, :, self.num_pieces :] = 0
 
     def empty_board(self) -> torch.Tensor:
         """Get empty board."""
@@ -192,9 +203,12 @@ class __BoardMaster:
     def pieces(self) -> list[str]:
         return self._pieces.copy()
 
-    def player_half(self, y: int) -> bool:
+    def player_half(self, y: int, player: bool) -> bool:
         """Return if y is on the player side of the board."""
-        return y < self.BOARD_SIZE[1] // 2
+        return (
+            int(player) * Board.board_size[1] // 2 <= y
+            and y < (1 + int(player)) * Board.board_size[1] // 2
+        )
 
     def layer_from_piece(self, piece: str) -> int:
         """Get layer from piece."""
