@@ -1,2 +1,6 @@
 *poetry.lock*
 *__pycache__*
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.coverage

@@ -104,7 +104,9 @@ class __BoardMaster:
             "S": SERGEANT_POSITIONS,
             "O": OFFICER_POSITIONS,
         }
-        self._board: torch.Tensor = torch.zeros(self.BOARD_DIMENSIONS)
+        self._board: torch.IntTensor = torch.zeros(self.BOARD_DIMENSIONS).to(
+            dtype=torch.int32
+        )
 
     def generate_p_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
         """Pregenerate moves for Private."""

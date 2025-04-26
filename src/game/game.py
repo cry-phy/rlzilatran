@@ -27,7 +27,7 @@ class Game:
     def new_game(cls) -> "Game":
         """Generate Initial game state."""
         last_moves = deque(maxlen=cls.HIST_LEN)
-        last_moves.appendleft(Board.empty_board())
+        [last_moves.appendleft(Board.empty_board()) for _ in range(cls.HIST_LEN)]
         return cls(State.initial_state(), last_moves)
 
     @classmethod

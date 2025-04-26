@@ -1,7 +1,10 @@
 from game.state import State
+from game.utils import Board
+from testlib import TEST_CASES, IDS
 import torch
 import pytest
-import pandas as pd
+
+SEED = 0
 
 
 def test_state_load():
@@ -20,39 +23,54 @@ def test_state_saving():
     assert torch.allclose(state.state, state_saved.state)
 
 
-def state_move_validity(
-    csv_path: str,
-) -> list[tuple[str, State, State, int, int, int, int, bool]]:
-    """Make list of states moves and validity available to tests."""
-    tests = pd.read_csv(csv_path)
-    boards_path = "tests/fixtures/boards/"
-    names: list[str] = [
-        f"{tests.STARTBOARD[i]}-{tests.ENDBOARD[i]}-{bool(tests.VALIDITY[i])}"
-        for i in tests.index
-    ]
-    start_board: list[State] = [
-        State.from_file(boards_path + file) for file in tests.STARTBOARD
-    ]
-    end_board: list[State] = [
-        State.from_file(boards_path + file) for file in tests.ENDBOARD
-    ]
-    x1s: list[int] = tests.MOVEX1.tolist()
-    y1s: list[int] = tests.MOVEY1.tolist()
-    x2s: list[int] = tests.MOVEX2.tolist()
-    y2s: list[int] = tests.MOVEY2.tolist()
-    validity: list[bool] = tests.VALIDITY.astype(bool).tolist()
-    return list(
-        zip(names, start_board, end_board, x1s, y1s, x2s, y2s, validity, strict=True)
-    )
+def test_state_copy():
+    """Test if copy from another state keeps information."""
+    state1 = State.from_file("tests/fixtures/boards/init_board.json")
+    state2 = State.from_state(state1)
+    assert state1 == state2
+    state3 = state1.copy()
+    assert state1 == state3
 
 
-TEST_CASES: list[tuple[str, State, State, int, int, int, int, bool]] = (
-    state_move_validity("tests/fixtures/game_fixtures/p_state_move_validity.csv")
-    + state_move_validity("tests/fixtures/game_fixtures/s_state_move_validity.csv")
-    + state_move_validity("tests/fixtures/game_fixtures/o_state_move_validity.csv")
-)
+def test_state_initial_state():
+    """Test if initial state is set correctly."""
+    state1 = State.initial_state()
+    state2 = State.from_file("tests/fixtures/boards/init_board.json")
+    assert state1 == state2
+    state3 = state1.copy()
+    state3.reset()
+    assert state1 == state3
 
-IDS: list[str] = [test_case[0] for test_case in TEST_CASES]
+
+def test_state_empty_board():
+    """Test if Empty board is set correctly."""
+    state = State.empty()
+    assert torch.allclose(state.tensor_reference, Board.empty_board())
+
+
+def test_state_properties():
+    """Test properties."""
+    state = State.from_file("tests/fixtures/boards/init_board.json")
+    torch.manual_seed(SEED)
+    random_state = torch.randint(0, 2, Board.empty_board().shape)
+    random_values = torch.randint(0, 10, (3, 1))
+    state.state = random_state
+    state.player = True
+    state.captured_value = random_values[0]
+    state.since_capture = random_values[1]
+    state.since_capture_call = random_values[2]
+
+
+def test_state_move_piece():
+    """Test getting available moves."""
+
+
+def test_state_player_mask():
+    """Test if mask works."""
+    false_mask, true_mask = torch.load("tests/fixtures/game_fixtures/player_masks.pt")
+    state = State.initial_state()
+    assert torch.allclose(state.get_player_mask(False), false_mask)
+    assert torch.allclose(state.get_player_mask(True), true_mask)
 
 
 @pytest.mark.parametrize(

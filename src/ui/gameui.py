@@ -7,6 +7,8 @@ from tkinter import Event, Menu, filedialog, messagebox
 import torch
 from enum import Enum, auto
 import logging
+import functools
+import inspect
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -29,6 +31,24 @@ PIECE_TOOL_DICT = {
     Tool.ADDS: "S",
     Tool.ADDO: "O",
 }
+
+
+def on_grid(fn):
+    """Wrap functions only intended for Grid usage."""
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        bound = sig.bind_partial(*args, **kwargs)
+        bound.apply_defaults()
+        x = bound.arguments["x"]
+        y = bound.arguments["y"]
+        if Board.valid_position(x, y):
+            return fn(*args, **kwargs)
+        else:
+            logger.debug("Clicked position (%i,%i) outside %s", x, y, Board.board_size)
+
+    return wrapper
 
 
 class GameUI:
@@ -276,40 +296,49 @@ class GameUI:
         y: int = event.y // self.CELL_SIZE
         logger.debug("Click registered: (%f, %f) -> (%i, %i)", event.x, event.y, x, y)
         self.tool_function_dict[self.selected](x, y)
+        self.redraw_board()
 
+    @on_grid
     def tool_move(self, x: int, y: int) -> None:
         """Separate tool actions."""
         if self.first_click_validity(x, y):
             self.select_square(x, y)
             self._select_tool(Tool.INMOVE)
 
+    @on_grid
     def tool_inmove(self, x: int, y: int) -> None:
         """Separate tool actions."""
         if self.second_click_validity(x, y):
             self.move_piece(x, y)
         self._select_tool(Tool.MOVE)
 
+    @on_grid
     def tool_add(self, x: int, y: int) -> None:
         """Separate tool actions."""
+        logger.debug("Checking to add piece on (%i, %i)", x, y)
         if not self.game.state.square_filled(x, y):
             self.place_piece(x, y)
 
+    @on_grid
     def tool_remove(self, x: int, y: int) -> None:
         """Separate tool actions."""
         self.remove_piece(x, y)
 
+    @on_grid
     def tool_force_select(self, x: int, y: int) -> None:
         """Separate tool actions."""
         if self.game.state.square_filled(x, y):
             self.select_square(x, y)
             self._select_tool(Tool.FORCE_MOVE)
 
+    @on_grid
     def tool_force_move(self, x: int, y: int) -> None:
         """Separate tool actions."""
-        self.move_piece(x, y)
+        if not ((x == self.selected_position[0]) and (y == self.selected_position[1])):
+            self.move_piece(x, y)
         self._select_tool(Tool.FORCE_SELECT)
-        self.redraw_board()
 
+    @on_grid
     def select_square(self, x: int, y: int):
         """Select certain square."""
         self.selected_position = (x, y)
@@ -334,6 +363,7 @@ class GameUI:
 
     def place_piece(self, x: int, y: int) -> None:
         """Place piece according to current tool on square."""
+        logger.debug("Adding %s on (%i, %i)", PIECE_TOOL_DICT[self.selected], x, y)
         self.game.state.add_piece(x, y, PIECE_TOOL_DICT[self.selected])
 
     def remove_piece(self, x: int, y: int) -> None:

@@ -11,6 +11,20 @@ To install pre-commit hooks use
 poetry run pre-commit install --hook-type pre-commit --hook-type commit-msg
 ```
 
+To run tests:
+```bash
+poetry run pytest
+```
+
+To get test coverage:
+```bash
+poetry run coverage run -m pytest
+```
+and for the interactive html:
+```bash
+poetry run coverage html
+```
+
 ## Zilatran Chess
 
 The Goal of this project is to apply Reinforcement Learning approaches to [Zilatran Chess]() to generate a Program able to play the game.

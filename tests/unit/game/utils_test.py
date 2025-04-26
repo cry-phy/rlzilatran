@@ -20,11 +20,11 @@ def test_init_board_size():
 
 def test_init_board():
     """Test whether initial board is set correctly."""
-    print(torch.load("tests/fixtures/boards/init_board.pt"))
+    print(torch.load("tests/fixtures/boards/init_board.pt").to(torch.int32))
     print(Board.initial_board())
     assert (
         torch.allclose(
-            torch.load("tests/fixtures/boards/init_board.pt"),
+            torch.load("tests/fixtures/boards/init_board.pt").to(torch.int32),
             Board.initial_board(),
         )
         is True

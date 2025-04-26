@@ -64,50 +64,30 @@ class State:
         """Return state Tensor for training."""
         return self._tensor.clone()
 
-    @property
-    def player_channel(self) -> torch.Tensor:
-        """Generate entire layer of player values."""
-        return torch.full(Board.board_size, int(self._player))
+    @player.setter
+    def player(self, player: bool) -> None:
+        """Set current player."""
+        self._player = player
 
-    @property
-    def capture_value_channel(self) -> torch.Tensor:
-        """Generate entire layer of player values."""
-        return torch.full(Board.board_size, int(self._captured_value))
+    @captured_value.setter
+    def captured_value(self, captured_value: float) -> None:
+        """Value of captured pieces by player False."""
+        self._captured_value = captured_value
 
-    @property
-    def since_capture_channel(self) -> torch.Tensor:
-        """Generate entire layer of player values."""
-        return torch.full(Board.board_size, int(self._since_capture))
+    @since_capture.setter
+    def since_capture(self, since_capture: int) -> None:
+        """Set moves since last capture."""
+        self._since_capture = since_capture
 
-    @property
-    def since_capture_call_channel(self) -> torch.Tensor:
-        """Generate entire layer of player values."""
-        return torch.full(Board.board_size, int(self._since_capture_call))
-
-    def get_additional_channels(self) -> list[torch.Tensor]:
-        """Get list of additional channels."""
-        return [
-            self.player_channel,
-            self.captured_value,
-            self.since_capture_channel,
-            self.since_capture_call_channel,
-        ]
+    @since_capture_call.setter
+    def since_capture_call(self, since_capture_call: int) -> None:
+        """Set moves since last capture."""
+        self._since_capture_call = since_capture_call
 
     @state.setter
-    def set_state(
-        self,
-        tensor: torch.Tensor,
-        player: bool = False,
-        captured_value: float = 0,
-        since_capture: int = 0,
-        since_capture_call: int = 0,
-    ) -> None:
+    def state(self, tensor: torch.Tensor) -> None:
         """Set state Tensor."""
         self._tensor = tensor
-        self._player = player
-        self._captured_value = captured_value
-        self._since_capture = since_capture
-        self._since_capture_call = since_capture_call
 
     @classmethod
     def initial_state(cls) -> "State":
@@ -259,9 +239,8 @@ class State:
     def add_piece(self, x: int, y: int, piece: str) -> None:
         """Add Piece to certain layer."""
         layer: torch.Tensor = Board.layer_from_piece(piece)
-        if not Board.player_half(y, self._player):
-            layer += Board.num_pieces
-        self._tensor[layer, x, y] = 1
+        i1, _ = Board.half_indices(y)
+        self._tensor[i1 + layer, x, y] = 1
 
     def remove_piece(self, x: int, y: int, piece: str) -> None:
         """Remove certain piece."""
@@ -272,3 +251,29 @@ class State:
     def clear_square(self, x: int, y: int) -> None:
         """Clear square entirely."""
         self._tensor[:, x, y] = 0
+
+    # -- Retrieve Channels --
+    def player_channel(self) -> torch.Tensor:
+        """Generate entire layer of player values."""
+        return torch.full(Board.board_size, int(self._player))
+
+    def captured_value_channel(self) -> torch.Tensor:
+        """Generate entire layer of player values."""
+        return torch.full(Board.board_size, int(self._captured_value))
+
+    def since_capture_channel(self) -> torch.Tensor:
+        """Generate entire layer of player values."""
+        return torch.full(Board.board_size, int(self._since_capture))
+
+    def since_capture_call_channel(self) -> torch.Tensor:
+        """Generate entire layer of player values."""
+        return torch.full(Board.board_size, int(self._since_capture_call))
+
+    def get_additional_channels(self) -> list[torch.Tensor]:
+        """Get list of additional channels."""
+        return [
+            self.player_channel(),
+            self.captured_value_channel(),
+            self.since_capture_channel(),
+            self.since_capture_call_channel(),
+        ]
