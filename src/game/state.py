@@ -21,6 +21,7 @@ class State:
         player: bool = True,
         captured_value: float = 0,
         since_capture: int = 0,
+        since_capture_call: int = 0,
     ) -> None:
         """Generate State instance.
 
@@ -30,6 +31,7 @@ class State:
         self._player: bool = player
         self._captured_value: float = captured_value
         self._since_capture: int = since_capture
+        self._since_capture_call: int = since_capture_call
         self._board_size: tuple[int, int] = Board.board_size
 
     @property
@@ -53,9 +55,43 @@ class State:
         return self._since_capture
 
     @property
+    def since_capture_call(self) -> int:
+        """Moves since last capture."""
+        return self._since_capture_call
+
+    @property
     def state(self) -> torch.Tensor:
         """Return state Tensor for training."""
         return self._tensor.clone()
+
+    @property
+    def player_channel(self) -> torch.Tensor:
+        """Generate entire layer of player values."""
+        return torch.full(Board.board_size, int(self._player))
+
+    @property
+    def capture_value_channel(self) -> torch.Tensor:
+        """Generate entire layer of player values."""
+        return torch.full(Board.board_size, int(self._captured_value))
+
+    @property
+    def since_capture_channel(self) -> torch.Tensor:
+        """Generate entire layer of player values."""
+        return torch.full(Board.board_size, int(self._since_capture))
+
+    @property
+    def since_capture_call_channel(self) -> torch.Tensor:
+        """Generate entire layer of player values."""
+        return torch.full(Board.board_size, int(self._since_capture_call))
+
+    def get_additional_channels(self) -> list[torch.Tensor]:
+        """Get list of additional channels."""
+        return [
+            self.player_channel,
+            self.captured_value,
+            self.since_capture_channel,
+            self.since_capture_call_channel,
+        ]
 
     @state.setter
     def set_state(
@@ -64,12 +100,14 @@ class State:
         player: bool = False,
         captured_value: float = 0,
         since_capture: int = 0,
+        since_capture_call: int = 0,
     ) -> None:
         """Set state Tensor."""
         self._tensor = tensor
         self._player = player
         self._captured_value = captured_value
         self._since_capture = since_capture
+        self._since_capture_call = since_capture_call
 
     @classmethod
     def initial_state(cls) -> "State":
@@ -99,6 +137,7 @@ class State:
             and self._player == other.player
             and self._captured_value == other.captured_value
             and self._since_capture == other.since_capture
+            and self._since_capture_call == other.since_capture_call
         )
 
     # --- File IO ---
@@ -109,6 +148,7 @@ class State:
             "player": self._player,
             "captured_value": self._captured_value,
             "since_capture": self._since_capture,
+            "since_capture_call": self._since_capture_call,
             "board_size": self._board_size,
         }
 
@@ -133,6 +173,7 @@ class State:
             player=data["player"],
             captured_value=data["captured_value"],
             since_capture=data["since_capture"],
+            since_capture_call=data["since_capture_call"],
         )
         return instance
 
@@ -202,12 +243,15 @@ class State:
             capture_value = Board.value_from_piece(capture_piece)
             self._since_capture += 1
             self._captured_value += capture_value
+            logger.debug("Capturing")
         # Benchmarked this: Faster than setting with add/remove_piece and where. TODO: Retest after additional logic.
-        i1 = int(self._player) * Board.num_pieces
-        i2 = (int(self._player) + 1) * Board.num_pieces
-        jbool = Board.player_half(y2, self._player)
-        j1 = int(jbool) * Board.num_pieces
-        j2 = (int(jbool) + 1) * Board.num_pieces
+        i1, i2 = Board.half_indices(y1)
+        j1, j2 = Board.half_indices(y2)
+        logger.debug(
+            "Moving %s to %s",
+            str(self._tensor[i1:i2, x1, y1]),
+            str(self._tensor[j1:j2, x2, y2]),
+        )
         self._tensor[j1:j2, x2, y2] = self._tensor[i1:i2, x1, y1]
         self._tensor[i1:i2, x1, y1] = 0
         self._player = not self._player

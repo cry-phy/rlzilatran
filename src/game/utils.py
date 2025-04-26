@@ -210,6 +210,13 @@ class __BoardMaster:
             and y < (1 + int(player)) * Board.board_size[1] // 2
         )
 
+    def half_indices(self, y: int) -> tuple[int, int]:
+        """Get indices equating to player layers."""
+        jbool = not (y < self.num_pieces)
+        j1 = int(jbool) * self.num_pieces
+        j2 = (int(jbool) + 1) * self.num_pieces
+        return j1, j2
+
     def layer_from_piece(self, piece: str) -> int:
         """Get layer from piece."""
         return self._piece_layer_dict[piece]

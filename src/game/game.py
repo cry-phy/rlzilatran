@@ -66,7 +66,7 @@ class Game:
     @property
     def training_tensor(self) -> torch.Tensor:
         """Stack the history and add additional information."""
-        torch.stack(self.last_moves)
+        torch.cat([*self.last_moves, *self.state.get_additional_channels()], dim=0)
 
 
 class RecordGame(Game):

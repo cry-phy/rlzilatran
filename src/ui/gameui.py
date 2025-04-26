@@ -330,9 +330,7 @@ class GameUI:
 
     def move_piece(self, x: int, y: int) -> None:
         """Make move to piece."""
-        self.game.state.make_move(
-            self.selected_position[0], self.selected_position[1], x, y
-        )
+        self.game.make_move(self.selected_position[0], self.selected_position[1], x, y)
 
     def place_piece(self, x: int, y: int) -> None:
         """Place piece according to current tool on square."""
