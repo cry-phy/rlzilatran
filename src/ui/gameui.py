@@ -1,3 +1,4 @@
+from typing import Callable
 from game.game import Game
 from game.state import State
 from game.utils import Board
@@ -39,10 +40,64 @@ class GameUI:
         self.game = game
         self.selected: Tool = Tool.MOVE
         self.selected_var: tk.IntVar = tk.IntVar(value=self.selected.value)
+        self.tool_function_dict: dict[Tool, Callable[[int, int], None]] = {
+            Tool.MOVE: self.tool_move,
+            Tool.INMOVE: self.tool_inmove,
+            Tool.ADDP: self.tool_add,
+            Tool.ADDS: self.tool_add,
+            Tool.ADDO: self.tool_add,
+            Tool.REMOVE: self.tool_remove,
+            Tool.FORCE_SELECT: self.tool_force_select,
+            Tool.FORCE_MOVE: self.tool_force_move,
+        }
 
         # --- Menu Bar ---
-        menubar = Menu(root)
-        filemenu = Menu(menubar, tearoff=0)
+        self.menubar = Menu(root)
+        self._add_save_menu()
+        self._add_tool_menu()
+        self.root.config(menu=self.menubar)
+
+        # --- Main Frame ---
+        self.main_frame = tk.Frame(self.root)
+        self.main_frame.grid(row=0, column=0, sticky="nsew")
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+
+        # --- Canvas for Board ---
+        self.COLUMNS, self.ROWS = Board.board_size
+        self.CELL_SIZE: int = 80
+        self.FONT_SIZE: int = 15
+        self.SMALL_FONT: int = 10
+        self.initial_resize_done = False
+
+        canvas_width = self.COLUMNS * self.CELL_SIZE
+        canvas_height = self.ROWS * self.CELL_SIZE
+        self.canvas = tk.Canvas(
+            self.main_frame,
+            width=canvas_width,
+            height=canvas_height,
+            bg="white",
+        )
+
+        # -- Placement and resize --
+        self.canvas.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self.main_frame.grid_rowconfigure(0, weight=1)
+        self.main_frame.grid_columnconfigure(0, weight=1)
+        self.canvas.bind("<Configure>", self._on_resize)
+        root.after(0, lambda: self._on_resize(self.canvas))
+
+        # -- Add Binds --
+        self.canvas.bind("<Button-1>", self.on_click)
+        self.canvas.bind("<Button-2>", self._clear_tool)
+        self.canvas.bind("<Button-3>", self._clear_tool)
+        self.root.bind_all("<Control-s>", lambda _: self.on_save())
+        self.root.bind_all("<Control-o>", lambda _: self.on_load())
+        self.root.bind_all("<Control-n>", lambda _: self.new_empty())
+
+        self.draw_board()
+
+    def _add_save_menu(self) -> None:
+        filemenu = Menu(self.menubar, tearoff=0)
         filemenu.add_command(label="Save", accelerator="Ctrl+S", command=self.on_save)
         filemenu.add_command(label="Load", accelerator="Ctrl+O", command=self.on_load)
         filemenu.add_separator()
@@ -51,10 +106,12 @@ class GameUI:
         )
         filemenu.add_command(label="Restart", command=self.on_restart)
         filemenu.add_separator()
-        filemenu.add_command(label="Quit", command=root.quit)
-        menubar.add_cascade(label="File", menu=filemenu)
+        filemenu.add_command(label="Quit", command=self.root.quit)
+        self.menubar.add_cascade(label="File", menu=filemenu)
 
-        toolmenu = tk.Menu(menubar, tearoff=0)
+    def _add_tool_menu(self) -> None:
+        """Separate menubar logic."""
+        toolmenu = tk.Menu(self.menubar, tearoff=0)
         for label, tool in [
             ("P", Tool.ADDP),
             ("S", Tool.ADDS),
@@ -80,43 +137,7 @@ class GameUI:
             value=Tool.FORCE_SELECT.value,
             command=lambda: self._select_tool(Tool.FORCE_SELECT),
         )
-        menubar.add_cascade(label="Tools", menu=toolmenu)
-        root.config(menu=menubar)
-
-        # --- Main Frame ---
-        self.main_frame = tk.Frame(root)
-        self.main_frame.grid(row=0, column=0, sticky="nsew")
-        root.grid_rowconfigure(0, weight=1)
-        root.grid_columnconfigure(0, weight=1)
-
-        # --- Canvas for Board ---
-        self.COLUMNS, self.ROWS = Board.board_size
-        self.CELL_SIZE: int = 80
-        self.FONT_SIZE: int = 15
-        self.SMALL_FONT: int = 10
-        self.initial_resize_done = False
-
-        canvas_width = self.COLUMNS * self.CELL_SIZE
-        canvas_height = self.ROWS * self.CELL_SIZE
-        self.canvas = tk.Canvas(
-            self.main_frame,
-            width=canvas_width,
-            height=canvas_height,
-            bg="white",
-        )
-        self.canvas.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
-        self.main_frame.grid_rowconfigure(0, weight=1)
-        self.main_frame.grid_columnconfigure(0, weight=1)
-        root.after(0, lambda: self._on_resize(self.canvas))
-
-        self.canvas.bind("<Configure>", self._on_resize)
-        self.canvas.bind("<Button-1>", self.on_click)
-        self.canvas.bind("<Button-2>", self._clear_tool)
-        root.bind_all("<Control-s>", lambda _: self.on_save())
-        root.bind_all("<Control-o>", lambda _: self.on_load())
-        root.bind_all("<Control-n>", lambda _: self.new_empty())
-
-        self.draw_board()
+        self.menubar.add_cascade(label="Tools", menu=toolmenu)
 
     def _on_resize(self, event_or_widget) -> None:
         """Resize canvas and scale/redraw contents proportionally."""
@@ -254,27 +275,39 @@ class GameUI:
         x: int = event.x // self.CELL_SIZE
         y: int = event.y // self.CELL_SIZE
         logger.debug("Click registered: (%f, %f) -> (%i, %i)", event.x, event.y, x, y)
-        match self.selected:
-            case Tool.MOVE:
-                if self.first_click_validity(x, y):
-                    self.select_square(x, y)
-                    self._select_tool(Tool.INMOVE)
-            case Tool.INMOVE:
-                if self.second_click_validity(x, y):
-                    self.move_piece(x, y)
-                self._select_tool(Tool.MOVE)
-            case Tool.ADDP | Tool.ADDS | Tool.ADDO:
-                if not self.game.state.square_filled(x, y):
-                    self.place_piece(x, y)
-            case Tool.REMOVE:
-                self.remove_piece(x, y)
-            case Tool.FORCE_SELECT:
-                if self.game.state.square_filled(x, y):
-                    self.select_square(x, y)
-                    self._select_tool(Tool.FORCE_MOVE)
-            case Tool.FORCE_MOVE:
-                self.move_piece(x, y)
-                self._select_tool(Tool.FORCE_SELECT)
+        self.tool_function_dict[self.selected](x, y)
+
+    def tool_move(self, x: int, y: int) -> None:
+        """Separate tool actions."""
+        if self.first_click_validity(x, y):
+            self.select_square(x, y)
+            self._select_tool(Tool.INMOVE)
+
+    def tool_inmove(self, x: int, y: int) -> None:
+        """Separate tool actions."""
+        if self.second_click_validity(x, y):
+            self.move_piece(x, y)
+        self._select_tool(Tool.MOVE)
+
+    def tool_add(self, x: int, y: int) -> None:
+        """Separate tool actions."""
+        if not self.game.state.square_filled(x, y):
+            self.place_piece(x, y)
+
+    def tool_remove(self, x: int, y: int) -> None:
+        """Separate tool actions."""
+        self.remove_piece(x, y)
+
+    def tool_force_select(self, x: int, y: int) -> None:
+        """Separate tool actions."""
+        if self.game.state.square_filled(x, y):
+            self.select_square(x, y)
+            self._select_tool(Tool.FORCE_MOVE)
+
+    def tool_force_move(self, x: int, y: int) -> None:
+        """Separate tool actions."""
+        self.move_piece(x, y)
+        self._select_tool(Tool.FORCE_SELECT)
         self.redraw_board()
 
     def select_square(self, x: int, y: int):
