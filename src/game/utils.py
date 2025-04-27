@@ -84,6 +84,7 @@ class __BoardMaster:
         self.BOARD_SIZE = (4, 8)
         self.NUM_LAYERS = 2 * len(self._pieces)
         self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
+        self.MAX_MOVES = self.x * self.y + 1
         self._piece_layer_dict = {
             "P": 0,
             "S": 1,
@@ -107,6 +108,12 @@ class __BoardMaster:
         self._board: torch.IntTensor = torch.zeros(self.BOARD_DIMENSIONS).to(
             dtype=torch.int32
         )
+
+    def index_from_move(self, x, y) -> int:
+        return y * self.x + x
+
+    def move_from_index(self, index: int) -> tuple[int, int]:
+        return index % self.x, index // self.x
 
     def generate_p_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
         """Pregenerate moves for Private."""
@@ -146,8 +153,9 @@ class __BoardMaster:
         origin = torch.IntTensor([x, y])
         own_mask = state.get_player_mask(state.player)
         other_mask = state.get_player_mask(not state.player)
+        max_steps = max(self.BOARD_SIZE) - 1
         for direction in self._OFFICER_DIRECTIONS:
-            for i in range(1, self.BOARD_SIZE[1] + 1):
+            for i in range(1, max_steps):
                 xi, yi = origin + i * direction
                 if not self.valid_position(xi, yi):
                     break
@@ -197,6 +205,14 @@ class __BoardMaster:
         return deepcopy(self.BOARD_SIZE)
 
     @property
+    def x(self) -> int:
+        return self.BOARD_SIZE[0]
+
+    @property
+    def y(self) -> int:
+        return self.BOARD_SIZE[1]
+
+    @property
     def num_layers(self) -> int:
         """Get number of layers."""
         return self.NUM_LAYERS
@@ -235,20 +251,20 @@ class __BoardMaster:
         return self._pieces[layer % len(self._pieces)]
 
     def valid_position(self, x: int, y: int) -> bool:
-        return (
-            (x >= 0)
-            and (x < self.BOARD_SIZE[0])
-            and (y >= 0)
-            and (y < self.BOARD_SIZE[1])
-        )
+        return (x >= 0) and (x < self.x) and (y >= 0) and (y < self.y)
 
     def valid_positions(self, positions: torch.Tensor) -> torch.BoolTensor:
         return (
             (positions[:, 0] >= 0)
-            & (positions[:, 0] < self.BOARD_SIZE[0])
+            & (positions[:, 0] < self.x)
             & (positions[:, 1] >= 0)
-            & (positions[:, 1] < self.BOARD_SIZE[1])
+            & (positions[:, 1] < self.y)
         )
+
+    @property
+    def move_tensor_shape(self) -> tuple[int, int, int]:
+        """Get shape for move tensor."""
+        return (*self.board_size, self.MAX_MOVES)
 
 
 Board = __BoardMaster()

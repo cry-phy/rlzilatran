@@ -135,8 +135,8 @@ class State:
     def save(self, path: str) -> None:
         """Save only the data to a JSON file inhu man readable spacing."""
         data = self.state_dict().copy()
-        data.pop("tensor")
-        data.pop("board_size")
+        tensor = data.pop("tensor")
+        board_size = data.pop("board_size")
 
         meta_str = json.dumps(data, indent=2).rstrip()
         if meta_str.endswith("}"):
@@ -145,18 +145,18 @@ class State:
         with open(path, "w") as f:
             f.write(meta_str)
             f.write(',\n  "board_size": ')
-            json.dump(self._board_size, f, separators=(",", ":"))
+            json.dump(board_size, f, separators=(",", ":"))
             # This incurs overhead but provides human readable data
             # Should not be called often anyways.
             f.write(',\n  "tensor": [\n')
-            for s_idx, slice2d in enumerate(self._tensor.tolist()):
+            for s_idx, slice2d in enumerate(tensor.tolist()):
                 f.write("    [\n")
                 for r_idx, row in enumerate(slice2d):
                     f.write("      ")
                     json.dump(row, f, separators=(",", ":"))
                     f.write(",\n" if r_idx < len(slice2d) - 1 else "\n")
                 f.write("    ]")
-                f.write(",\n" if s_idx < len(self._tensor) - 1 else "\n")
+                f.write(",\n" if s_idx < len(tensor) - 1 else "\n")
             f.write("  ]\n")
             f.write("}\n")
 

@@ -1,13 +1,15 @@
 from game.state import State
 import pandas as pd
 
+FIXTURES: str = "tests/fixtures/"
+
 
 def state_move_validity(
     csv_path: str,
 ) -> list[tuple[str, State, State, int, int, int, int, bool]]:
     """Make list of states moves and validity available to tests."""
     tests = pd.read_csv(csv_path)
-    boards_path = "tests/fixtures/boards/"
+    boards_path = FIXTURES + "boards/"
     names: list[str] = [
         f"{tests.STARTBOARD[i]}-{tests.ENDBOARD[i]}-{bool(tests.VALIDITY[i])}"
         for i in tests.index
@@ -29,9 +31,9 @@ def state_move_validity(
 
 
 TEST_CASES: list[tuple[str, State, State, int, int, int, int, bool]] = (
-    state_move_validity("tests/fixtures/game_fixtures/p_state_move_validity.csv")
-    + state_move_validity("tests/fixtures/game_fixtures/s_state_move_validity.csv")
-    + state_move_validity("tests/fixtures/game_fixtures/o_state_move_validity.csv")
+    state_move_validity(FIXTURES + "game_fixtures/p_state_move_validity.csv")
+    + state_move_validity(FIXTURES + "game_fixtures/s_state_move_validity.csv")
+    + state_move_validity(FIXTURES + "game_fixtures/o_state_move_validity.csv")
 )
 
 IDS: list[str] = [test_case[0] for test_case in TEST_CASES]

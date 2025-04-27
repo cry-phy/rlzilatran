@@ -68,6 +68,19 @@ class Game:
         """Stack the history and add additional information."""
         torch.cat([*self.last_moves, *self.state.get_additional_channels()], dim=0)
 
+    def full_move_tensor(self, value: float) -> torch.Tensor:
+        """Get a move tensor with all moves equally likely."""
+        return torch.full(Board.move_tensor_shape, value)
+
+    def move_mask(self) -> torch.BoolTensor:
+        """Get mask for viable moves in move tensor."""
+        own_positions = torch.where(self.state.get_player_mask(self.state.player))
+        mask = torch.full(Board.move_tensor_shape, False)
+        for x, y in zip(*own_positions, strict=True):
+            move_x, move_y = self.get_piece_targets(x, y).T
+            mask[x, y, Board.index_from_move(move_x, move_y)] = True
+        return mask
+
 
 class RecordGame(Game):
     """Game with recording of past moves into files."""

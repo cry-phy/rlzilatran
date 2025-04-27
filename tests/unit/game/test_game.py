@@ -1,7 +1,19 @@
 from game.state import State
-from testlib import TEST_CASES, IDS
+from game.game import Game
+from game.utils import Board
+from testlib import FIXTURES, TEST_CASES, IDS
 import torch
 import pytest
+
+
+def test_move_mask():
+    """Test in move mask is generated correctly."""
+    reference = torch.load(FIXTURES + "game_fixtures/init_move_targets.pt")
+    game = Game.new_game()
+    mask = game.move_mask()
+    generated = Board.move_from_index(torch.where(mask)[2])
+    assert torch.allclose(generated[0], reference[0])
+    assert torch.allclose(generated[1], reference[1])
 
 
 @pytest.mark.parametrize(
