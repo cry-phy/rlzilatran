@@ -1,6 +1,7 @@
 import torch
+import numpy as np
 from copy import deepcopy
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -80,11 +81,15 @@ class __BoardMaster:
 
     def __init__(self) -> None:
         """Empty initializer use Factory methods instead."""
-        self._pieces = ["P", "S", "O"]
+        self._pieces = np.array(["P", "S", "O"])
         self.BOARD_SIZE = (4, 8)
         self.NUM_LAYERS = 2 * len(self._pieces)
         self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
         self.MAX_MOVES = self.x * self.y + 1
+        self._capture_clock = 7
+        self._piece_unique_dict: dict[str, int] = {
+            key: i for i, key in enumerate(self._pieces)
+        }
         self._piece_layer_dict = {
             "P": 0,
             "S": 1,
@@ -108,6 +113,28 @@ class __BoardMaster:
         self._board: torch.IntTensor = torch.zeros(self.BOARD_DIMENSIONS).to(
             dtype=torch.int32
         )
+
+        self._layer_list = self.convert_dict_list(self._piece_layer_dict)
+        self._value_list = torch.IntTensor(
+            self.convert_dict_list(self._piece_value_dict)
+        )
+        self._move_list = self.convert_dict_list(self._piece_move_dict)
+        self._max_capture_value = self.generate_max_capture_value()
+
+    def generate_max_capture_value(self) -> float:
+        """Pregenerate sum of all captures."""
+        total_values_piece = [
+            self._piece_value_dict[piece] * len(self._initial_piece_dictionary[piece])
+            for piece in self.pieces
+        ]
+        return sum(total_values_piece)
+
+    def convert_dict_list(self, piece_any_dict) -> list[Any]:
+        """Convert a piece to any dictionary into a unique identifiers dict."""
+        converter = [None] * len(piece_any_dict)
+        for key in piece_any_dict.keys():
+            converter[self._piece_unique_dict[key]] = piece_any_dict[key]
+        return converter
 
     def index_from_move(self, x, y) -> int:
         return y * self.x + x
@@ -221,6 +248,14 @@ class __BoardMaster:
     def pieces(self) -> list[str]:
         return self._pieces.copy()
 
+    @property
+    def max_capture_value(self) -> float:
+        return self._max_capture_value
+
+    @property
+    def capture_clock(self) -> int:
+        return self._capture_clock
+
     def player_half(self, y: int, player: bool) -> bool:
         """Return if y is on the player side of the board."""
         return (
@@ -230,7 +265,7 @@ class __BoardMaster:
 
     def half_indices(self, y: int) -> tuple[int, int]:
         """Get indices equating to player layers."""
-        jbool = not (y < self.num_pieces)
+        jbool = not (y <= self.num_pieces)
         j1 = int(jbool) * self.num_pieces
         j2 = (int(jbool) + 1) * self.num_pieces
         return j1, j2
@@ -246,6 +281,12 @@ class __BoardMaster:
     def moves_from_piece(self, piece: str) -> Callable[[int, int, "State"], int]:
         """Get moves from piece."""
         return self._piece_move_dict[piece]
+
+    def unqiue_from_layer(self, layer: int | torch.IntTensor) -> int | torch.IntTensor:
+        return layer % len(self._pieces)
+
+    def value_from_layer(self, layer: int | torch.IntTensor) -> float | torch.Tensor:
+        return self._value_list[self.unqiue_from_layer(layer)]
 
     def piece_from_layer(self, layer: int) -> str:
         return self._pieces[layer % len(self._pieces)]

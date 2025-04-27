@@ -176,7 +176,12 @@ class GameUI:
         self.CELL_SIZE = int(real_h / self.ROWS)
         self.FONT_SIZE = int(15 * self.CELL_SIZE / 80)
         self.SMALL_FONT = int(2 * self.FONT_SIZE / 3)
-        logger.debug("Resizing (CELL_SIZE, FONT_SIZE, SMALL_FONT) -> (%i, %i,%i,)")
+        logger.debug(
+            "Resizing (CELL_SIZE, FONT_SIZE, SMALL_FONT) -> (%i, %i,%i,)",
+            self.CELL_SIZE,
+            self.FONT_SIZE,
+            self.SMALL_FONT,
+        )
         wscale = real_w / self.width
         hscale = real_h / self.height
         self.canvas.scale("all", 0, 0, wscale, hscale)
@@ -294,9 +299,10 @@ class GameUI:
         """Recognize cell click."""
         x: int = event.x // self.CELL_SIZE
         y: int = event.y // self.CELL_SIZE
-        logger.debug("Click registered: (%f, %f) -> (%i, %i)", event.x, event.y, x, y)
+        # logger.debug("Click registered: (%f, %f) -> (%i, %i)", event.x, event.y, x, y)
         self.tool_function_dict[self.selected](x, y)
         self.redraw_board()
+        print(self.game.state.player)
 
     @on_grid
     def tool_move(self, x: int, y: int) -> None:
@@ -329,6 +335,8 @@ class GameUI:
         """Separate tool actions."""
         if self.game.state.square_filled(x, y):
             self.select_square(x, y)
+            if not Board.player_half(y, self.game.state.player):
+                self.game.state.player = not self.game.state.player
             self._select_tool(Tool.FORCE_MOVE)
 
     @on_grid
