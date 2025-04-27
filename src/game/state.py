@@ -300,7 +300,6 @@ class State:
                 Board.value_from_layer(capture_layer),
             )
             self._captured_value[int(self._player)] += capture_value
-        # Benchmarked this: Faster than setting with add/remove_piece and where. TODO: Retest after additional logic.
         i1, i2 = Board.half_indices(y1)
         j1, j2 = Board.half_indices(y2)
         logger.debug(

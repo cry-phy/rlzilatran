@@ -4,6 +4,7 @@ from game.state import State
 from game.utils import Board
 import tkinter as tk
 from tkinter import Event, Menu, filedialog, messagebox
+from observer.base import BaseObserver
 import torch
 from enum import Enum, auto
 import logging
@@ -51,7 +52,7 @@ def on_grid(fn):
     return wrapper
 
 
-class GameUI:
+class UIObserver(BaseObserver):
     """Game UI for debugging and later play."""
 
     def __init__(self, root, game: Game) -> None:
@@ -299,11 +300,13 @@ class GameUI:
         """Recognize cell click."""
         x: int = event.x // self.CELL_SIZE
         y: int = event.y // self.CELL_SIZE
-        # logger.debug("Click registered: (%f, %f) -> (%i, %i)", event.x, event.y, x, y)
+        logger.debug("Click registered: (%f, %f) -> (%i, %i)", event.x, event.y, x, y)
+        # to agent
         self.tool_function_dict[self.selected](x, y)
         self.redraw_board()
         print(self.game.state.player)
 
+    # to agent
     @on_grid
     def tool_move(self, x: int, y: int) -> None:
         """Separate tool actions."""
@@ -378,6 +381,7 @@ class GameUI:
         """Clear square."""
         self.game.state.clear_square(x, y)
 
+    # stays
     def draw_board(self) -> None:
         """Wrap common draw functions."""
         self.draw_grid()
