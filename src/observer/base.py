@@ -17,6 +17,7 @@ class BaseObserver:
         self._root = None
         self._game = game
         self._agents = agents
+        self._game_over = False
 
     @classmethod
     def self_play(
@@ -24,10 +25,16 @@ class BaseObserver:
     ) -> "BaseObserver":
         """Generate a game between two of the same agents."""
         game = Game.new_game()
-        return cls(workers, game, (agent_cls(workers, game), agent_cls(workers, game)))
+        agent1 = agent_cls(game, workers)
+        agent2 = agent_cls(game, workers)
+        agent1.player = True
+        agent1._clear_tool()
+        agent2.player = agent1.player
+        agent2._clear_tool()
+        return cls(workers, game, (agent1, agent2))
 
     @classmethod
-    def against(
+    def any_vs_any(
         cls,
         agent_cls1: type[BaseAgent],
         agent_cls2: type[BaseAgent],
@@ -35,18 +42,25 @@ class BaseObserver:
     ) -> "BaseObserver":
         """Pit two agents against each other."""
         game = Game.new_game()
-        return cls(
-            workers, game, (agent_cls1(workers, game), agent_cls2(workers, game))
-        )
+        agent1 = agent_cls1(game, workers)
+        agent2 = agent_cls2(game, workers)
+        agent1.player = True
+        agent2.player = agent1.player
+        return cls(workers, game, (agent1, agent2))
 
-    def move(self) -> None:
+    def move(self) -> bool:
         """Make a single move of the current Agent."""
         raise NotImplementedError
 
     def generate_episode(self) -> None:
         """Generate an entire episode."""
-        raise NotImplementedError
+        while not self._game_over:
+            self.game_over = self.move()
 
     def get_data(self) -> torch.Tensor:
         """Get a segment of data."""
+        raise NotImplementedError
+
+    def run(self) -> None:
+        """Run indefinitely."""
         raise NotImplementedError

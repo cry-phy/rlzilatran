@@ -1,8 +1,8 @@
-from ui.gameui import GameUI
-from game.game import Game
-import tkinter as tk
+from agents.human import HumanAgent
 import logging
 import sys
+
+from observer.ui import UIObserver
 
 
 def setup_logging(rank: int = 0):
@@ -37,11 +37,9 @@ def main():
 
     logger = logging.getLogger(__name__)
     logger.info("Starting application")
-    root = tk.Tk()
-    root.title("Katruji / Zilatran Chess")
-    game = Game.new_game()
-    GameUI(root, game)
-    root.mainloop()
+
+    observer = UIObserver.any_vs_any(HumanAgent, HumanAgent, (0, 1))
+    observer.run()
 
 
 if __name__ == "__main__":
