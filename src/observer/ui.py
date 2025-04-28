@@ -1,78 +1,34 @@
-from typing import Callable
+from agents.base import BaseAgent
 from game.game import Game
 from game.state import State
 from game.utils import Board
+from observer.base import BaseObserver
+from agents.human import Tool
 import tkinter as tk
 from tkinter import Event, Menu, filedialog, messagebox
 import torch
-from enum import Enum, auto
 import logging
-import functools
-import inspect
 
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-class Tool(Enum):
-    """Enum for handling selected tool."""
-
-    MOVE = auto()
-    INMOVE = auto()
-    ADDP = auto()
-    ADDS = auto()
-    ADDO = auto()
-    REMOVE = auto()
-    FORCE_SELECT = auto()
-    FORCE_MOVE = auto()
-
-
-PIECE_TOOL_DICT = {
-    Tool.ADDP: "P",
-    Tool.ADDS: "S",
-    Tool.ADDO: "O",
-}
-
-
-def on_grid(fn):
-    """Wrap functions only intended for Grid usage."""
-    sig = inspect.signature(fn)
-
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        bound = sig.bind_partial(*args, **kwargs)
-        bound.apply_defaults()
-        x = bound.arguments["x"]
-        y = bound.arguments["y"]
-        if Board.valid_position(x, y):
-            return fn(*args, **kwargs)
-        else:
-            logger.debug("Clicked position (%i,%i) outside %s", x, y, Board.board_size)
-
-    return wrapper
-
-
-class GameUI:
+class UIObserver(BaseObserver):
     """Game UI for debugging and later play."""
 
-    def __init__(self, root, game: Game) -> None:
+    def __init__(
+        self, workers: tuple[int, ...], game: Game, agents: tuple[BaseAgent, BaseAgent]
+    ) -> None:
         """Initialize window."""
-        self.root = root
+        super().__init__(workers, game, agents)
+        self.root = tk.Tk()
+        self.root.title("Katruji / Zilatran Chess")
+
         self.game = game
-        self.selected: Tool = Tool.MOVE
-        self.selected_var: tk.IntVar = tk.IntVar(value=self.selected.value)
-        self.tool_function_dict: dict[Tool, Callable[[int, int], None]] = {
-            Tool.MOVE: self.tool_move,
-            Tool.INMOVE: self.tool_inmove,
-            Tool.ADDP: self.tool_add,
-            Tool.ADDS: self.tool_add,
-            Tool.ADDO: self.tool_add,
-            Tool.REMOVE: self.tool_remove,
-            Tool.FORCE_SELECT: self.tool_force_select,
-            Tool.FORCE_MOVE: self.tool_force_move,
-        }
+        self.selected_positions: list[tuple[int, int]] = []
+        self.possible_moves: torch.IntTensor = torch.empty(0, 2)
 
         # --- Menu Bar ---
-        self.menubar = Menu(root)
+        self.menubar = Menu(self.root)
         self._add_save_menu()
         self._add_tool_menu()
         self.root.config(menu=self.menubar)
@@ -89,6 +45,7 @@ class GameUI:
         self.FONT_SIZE: int = 15
         self.SMALL_FONT: int = 10
         self.initial_resize_done = False
+        self.WAIT_TIME = 100
 
         canvas_width = self.COLUMNS * self.CELL_SIZE
         canvas_height = self.ROWS * self.CELL_SIZE
@@ -104,12 +61,12 @@ class GameUI:
         self.main_frame.grid_rowconfigure(0, weight=1)
         self.main_frame.grid_columnconfigure(0, weight=1)
         self.canvas.bind("<Configure>", self._on_resize)
-        root.after(0, lambda: self._on_resize(self.canvas))
+        self.root.after(0, lambda: self._on_resize(self.canvas))
 
         # -- Add Binds --
         self.canvas.bind("<Button-1>", self.on_click)
-        self.canvas.bind("<Button-2>", self._clear_tool)
-        self.canvas.bind("<Button-3>", self._clear_tool)
+        self.canvas.bind("<Button-2>", lambda _: self._current_agent()._clear_tool)
+        self.canvas.bind("<Button-3>", lambda _: self._current_agent()._clear_tool)
         self.root.bind_all("<Control-s>", lambda _: self.on_save())
         self.root.bind_all("<Control-o>", lambda _: self.on_load())
         self.root.bind_all("<Control-n>", lambda _: self.new_empty())
@@ -140,22 +97,22 @@ class GameUI:
         ]:
             toolmenu.add_radiobutton(
                 label=label,
-                variable=self.selected_var,
+                variable=self._current_agent().selected_var,
                 value=tool.value,
-                command=lambda t=tool: self._select_tool(t),
+                command=lambda t=tool: self._current_agent()._select_tool(t),
             )
         toolmenu.add_separator()
         toolmenu.add_radiobutton(
             label="MOVE",
-            variable=self.selected_var,
+            variable=self._current_agent().selected_var,
             value=Tool.MOVE.value,
-            command=lambda: self._select_tool(Tool.MOVE),
+            command=lambda: self._current_agent()._select_tool(Tool.MOVE),
         )
         toolmenu.add_radiobutton(
             label="FORCE",
-            variable=self.selected_var,
+            variable=self._current_agent().selected_var,
             value=Tool.FORCE_SELECT.value,
-            command=lambda: self._select_tool(Tool.FORCE_SELECT),
+            command=lambda: self._current_agent()._select_tool(Tool.FORCE_SELECT),
         )
         self.menubar.add_cascade(label="Tools", menu=toolmenu)
 
@@ -174,9 +131,16 @@ class GameUI:
             return
         real_w, real_h = w * 0.96, h * 0.96
         self.CELL_SIZE = int(real_h / self.ROWS)
+        self._agents[0]._CELL_SIZE = self.CELL_SIZE
+        self._agents[1]._CELL_SIZE = self.CELL_SIZE
         self.FONT_SIZE = int(15 * self.CELL_SIZE / 80)
         self.SMALL_FONT = int(2 * self.FONT_SIZE / 3)
-        logger.debug("Resizing (CELL_SIZE, FONT_SIZE, SMALL_FONT) -> (%i, %i,%i,)")
+        logger.debug(
+            "Resizing (CELL_SIZE, FONT_SIZE, SMALL_FONT) -> (%i, %i,%i,)",
+            self.CELL_SIZE,
+            self.FONT_SIZE,
+            self.SMALL_FONT,
+        )
         wscale = real_w / self.width
         hscale = real_h / self.height
         self.canvas.scale("all", 0, 0, wscale, hscale)
@@ -185,16 +149,6 @@ class GameUI:
         self.canvas.config(width=real_w, height=real_h)
         self.redraw_board()
 
-    def _select_tool(self, tool: Tool) -> None:
-        """Centralize tool selection logic."""
-        self.selected = tool
-        self.selected_var.set(tool.value)
-        self.redraw_board()
-
-    def _clear_tool(self, event: Event) -> None:
-        """Clear tool selection."""
-        self._select_tool(Tool.MOVE)
-
     def _get_cell_boundaries(self, x: int, y: int) -> tuple[int, int, int, int]:
         """Find boundary of cell for drawing Board."""
         x1: float = x * self.CELL_SIZE
@@ -202,6 +156,10 @@ class GameUI:
         x2: float = x1 + self.CELL_SIZE
         y2: float = y1 + self.CELL_SIZE
         return x1, y1, x2, y2
+
+    def _current_agent(self) -> BaseAgent:
+        """Return the currently at play agent."""
+        return self._agents[self.game.state.player]
 
     def draw_grid(self) -> None:
         """Draw grid on which the Game is rendered."""
@@ -247,18 +205,23 @@ class GameUI:
 
     def draw_selected(self) -> None:
         """Draw selected square."""
-        if self.selected in (Tool.INMOVE, Tool.FORCE_MOVE):
-            self.canvas.create_rectangle(
-                *self._get_cell_boundaries(*self.selected_position),
-                outline="black",
-                fill="lightblue",
-            )
-            for move in self.possible_moves:
+        print(self.selected_positions)
+        if self.selected_positions:
+            for position in self.selected_positions:
+                print(position)
                 self.canvas.create_rectangle(
-                    *self._get_cell_boundaries(int(move[0]), int(move[1])),
+                    *self._get_cell_boundaries(*position),
                     outline="black",
-                    fill="orchid1",
+                    fill="lightblue",
                 )
+                moves = self._current_agent().possible_moves(*position)
+                print(moves)
+                for move in moves:
+                    self.canvas.create_rectangle(
+                        *self._get_cell_boundaries(int(move[0]), int(move[1])),
+                        outline="black",
+                        fill="orchid1",
+                    )
 
     def on_save(self) -> None:
         """Save current game as json."""
@@ -292,83 +255,12 @@ class GameUI:
 
     def on_click(self, event: Event) -> None:
         """Recognize cell click."""
-        x: int = event.x // self.CELL_SIZE
-        y: int = event.y // self.CELL_SIZE
-        logger.debug("Click registered: (%f, %f) -> (%i, %i)", event.x, event.y, x, y)
-        self.tool_function_dict[self.selected](x, y)
+        agent = self._current_agent()
+        if agent.clickable:
+            logger.debug("Handing Event to clickable %s.", type(agent))
+            agent.handle_click(event)
+        self.selected_positions = agent.selected_positions()
         self.redraw_board()
-
-    @on_grid
-    def tool_move(self, x: int, y: int) -> None:
-        """Separate tool actions."""
-        if self.first_click_validity(x, y):
-            self.select_square(x, y)
-            self._select_tool(Tool.INMOVE)
-
-    @on_grid
-    def tool_inmove(self, x: int, y: int) -> None:
-        """Separate tool actions."""
-        if self.second_click_validity(x, y):
-            self.move_piece(x, y)
-        self._select_tool(Tool.MOVE)
-
-    @on_grid
-    def tool_add(self, x: int, y: int) -> None:
-        """Separate tool actions."""
-        logger.debug("Checking to add piece on (%i, %i)", x, y)
-        if not self.game.state.square_filled(x, y):
-            self.place_piece(x, y)
-
-    @on_grid
-    def tool_remove(self, x: int, y: int) -> None:
-        """Separate tool actions."""
-        self.remove_piece(x, y)
-
-    @on_grid
-    def tool_force_select(self, x: int, y: int) -> None:
-        """Separate tool actions."""
-        if self.game.state.square_filled(x, y):
-            self.select_square(x, y)
-            self._select_tool(Tool.FORCE_MOVE)
-
-    @on_grid
-    def tool_force_move(self, x: int, y: int) -> None:
-        """Separate tool actions."""
-        if not ((x == self.selected_position[0]) and (y == self.selected_position[1])):
-            self.move_piece(x, y)
-        self._select_tool(Tool.FORCE_SELECT)
-
-    @on_grid
-    def select_square(self, x: int, y: int):
-        """Select certain square."""
-        self.selected_position = (x, y)
-        self.possible_moves = self.game.get_piece_targets(x, y)
-        self._select_tool(Tool.INMOVE)
-
-    def first_click_validity(self, x: int, y: int) -> bool:
-        """Check whether square is valid for selection."""
-        return self.game.state.state[:, x, y].sum(axis=0) and Board.player_half(
-            y, self.game.state.player
-        )
-
-    def second_click_validity(self, x: int, y: int) -> bool:
-        """Check whether square is valid for move."""
-        return self.game.state.check_move(
-            self.selected_position[0], self.selected_position[1], x, y
-        )
-
-    def move_piece(self, x: int, y: int) -> None:
-        """Make move to piece."""
-        self.game.make_move(self.selected_position[0], self.selected_position[1], x, y)
-
-    def place_piece(self, x: int, y: int) -> None:
-        """Place piece according to current tool on square."""
-        logger.debug("Adding %s on (%i, %i)", PIECE_TOOL_DICT[self.selected], x, y)
-        self.game.state.add_piece(x, y, PIECE_TOOL_DICT[self.selected])
-
-    def remove_piece(self, x: int, y: int) -> None:
-        """Clear square."""
-        self.game.state.clear_square(x, y)
 
     def draw_board(self) -> None:
         """Wrap common draw functions."""
@@ -381,3 +273,47 @@ class GameUI:
         """Redraw game state."""
         self.canvas.delete("all")
         self.draw_board()
+
+    def pre_clickable_input(self):
+        """Let human select move."""
+        self.canvas.bind("<Button-1>", self.on_click)
+
+    def post_clickable_input(self):
+        """Remove interaction."""
+        self.canvas.unbind("<Button-1>")
+
+    def generate_episode(self) -> None:
+        """Generate Episode. Overrides BaseObserver."""
+        self._generate_steps()
+
+    def wait(self) -> None:
+        """Wait for refresh."""
+        self.root.after(self.WAIT_TIME, self._generate_steps)
+
+    def move(self) -> None:
+        """Make agent make a move."""
+        agent = self._current_agent()
+        x1, y1, x2, y2 = agent.generate_move()
+        agent.make_move(x1, y1, x2, y2)
+        self.redraw_board()
+
+    def _generate_steps(self) -> None:
+        """Recursively do steps."""
+        agent = self._current_agent()
+        if agent.clickable:
+            self.pre_clickable_input()
+            if agent.move_ready:
+                self.move()
+                if not self.game.game_over():
+                    self.wait()
+                else:
+                    logger.debug("Finished game.")
+            else:
+                self.wait()
+        else:
+            self.move()
+
+    def run(self) -> None:
+        """Execute main loop."""
+        self.wait()
+        self.root.mainloop()

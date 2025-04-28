@@ -1,7 +1,8 @@
-from collections import deque
+from copy import deepcopy
 from game.state import State
 from game.utils import Board
 from typing import Callable
+from collections import deque
 import torch
 import os
 import logging
@@ -31,9 +32,18 @@ class Game:
         return cls(State.initial_state(), last_moves)
 
     @classmethod
+    def from_game(cls, game: "Game") -> "Game":
+        """Copy from RecordGame."""
+        return cls(game.state.copy(), deepcopy(game.last_moves))
+
+    @classmethod
     def from_record_game(cls, record_game: "RecordGame") -> "Game":
         """Copy from RecordGame."""
-        return cls(record_game.state, record_game.last_moves)
+        return cls(record_game.state.copy(), deepcopy(record_game.last_moves))
+
+    def copy(self) -> "Game":
+        """Copy operation."""
+        return self.from_game(self)
 
     def reset(self) -> None:
         """Reset game state."""
@@ -80,6 +90,27 @@ class Game:
             move_x, move_y = self.get_piece_targets(x, y).T
             mask[x, y, Board.index_from_move(move_x, move_y)] = True
         return mask
+
+    def all_moves(self) -> torch.IntTensor:
+        """Get list of all moves."""
+        return torch.where(self.move_mask()).to(torch.int32)
+
+    def game_over(self) -> bool:
+        """Check game status."""
+        return self.state.game_over()
+
+    def winner(self) -> bool | None:
+        """Game winner."""
+        if (
+            self.state.captured_value[int(False)]
+            == self.state.captured_value[int(True)]
+        ):
+            return None
+        else:
+            return (
+                self.state.captured_value[int(False)]
+                <= self.state.captured_value[int(True)]
+            )
 
 
 class RecordGame(Game):

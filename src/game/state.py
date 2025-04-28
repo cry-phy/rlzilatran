@@ -19,7 +19,7 @@ class State:
         self,
         tensor: torch.Tensor,
         player: bool = True,
-        captured_value: float = 0,
+        captured_value: list[float] = [0, 0],
         since_capture: int = 0,
         since_capture_call: int = 0,
     ) -> None:
@@ -29,7 +29,7 @@ class State:
         """
         self._tensor: torch.IntTensor = tensor
         self._player: bool = player
-        self._captured_value: float = captured_value
+        self._captured_value: list[float] = captured_value
         self._since_capture: int = since_capture
         self._since_capture_call: int = since_capture_call
         self._board_size: tuple[int, int] = Board.board_size
@@ -45,7 +45,7 @@ class State:
         return self._player
 
     @property
-    def captured_value(self) -> float:
+    def captured_value(self) -> list[float]:
         """Value of captured pieces by player False."""
         return self._captured_value
 
@@ -70,7 +70,7 @@ class State:
         self._player = player
 
     @captured_value.setter
-    def captured_value(self, captured_value: float) -> None:
+    def captured_value(self, captured_value: list[float]) -> None:
         """Value of captured pieces by player False."""
         self._captured_value = captured_value
 
@@ -120,11 +120,29 @@ class State:
             and self._since_capture_call == other.since_capture_call
         )
 
+    def __repr__(self) -> str:
+        string = "State:"
+        string += "\n\t"
+        string += "player:              " + str(self._player)
+        string += "\n\t"
+        string += "captured_value:      " + str(self._captured_value)
+        string += "\n\t"
+        string += "since_capture:       " + str(self._since_capture)
+        string += "\n\t"
+        string += "since_capture_call:  " + str(self._since_capture_call)
+        string += "\n\t"
+        string += "board_size:          " + str(self._board_size)
+        string += "\n\t"
+        string += self._tensor.__repr__()
+        return string
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
     # --- File IO ---
     def state_dict(self) -> dict:
         """Return a plain dict of only the data fields."""
         return {
-            "tensor": self._tensor,
             "player": self._player,
             "captured_value": self._captured_value,
             "since_capture": self._since_capture,
@@ -133,15 +151,16 @@ class State:
         }
 
     def save(self, path: str) -> None:
-        """Save only the data to a JSON file inhu man readable spacing."""
+        """Save only the data to a JSON file in human readable spacing."""
         data = self.state_dict().copy()
-        tensor = data.pop("tensor")
         board_size = data.pop("board_size")
 
+        logger.debug("Dumping data %s", data)
         meta_str = json.dumps(data, indent=2).rstrip()
         if meta_str.endswith("}"):
             meta_str = meta_str[:-1]
 
+        logger.debug("Dumping tensor and board size.")
         with open(path, "w") as f:
             f.write(meta_str)
             f.write(',\n  "board_size": ')
@@ -149,14 +168,14 @@ class State:
             # This incurs overhead but provides human readable data
             # Should not be called often anyways.
             f.write(',\n  "tensor": [\n')
-            for s_idx, slice2d in enumerate(tensor.tolist()):
+            for s_idx, slice2d in enumerate(self._tensor.tolist()):
                 f.write("    [\n")
                 for r_idx, row in enumerate(slice2d):
                     f.write("      ")
                     json.dump(row, f, separators=(",", ":"))
                     f.write(",\n" if r_idx < len(slice2d) - 1 else "\n")
                 f.write("    ]")
-                f.write(",\n" if s_idx < len(tensor) - 1 else "\n")
+                f.write(",\n" if s_idx < len(self._tensor) - 1 else "\n")
             f.write("  ]\n")
             f.write("}\n")
 
@@ -207,6 +226,14 @@ class State:
             .to(bool)
         )
 
+    def player_material(self, player: bool) -> float:
+        """Get the material of player."""
+        x, y = torch.where(self.get_player_mask(True))
+        positions: torch.IntTensor = torch.stack((x, y), dim=1).T
+        layer, _ = torch.where(self.tensor_reference[:, positions[0], positions[1]])
+        value: torch.Tensor = Board.value_from_layer(layer)
+        return value.sum()
+
     # --- Game Rules ---
     def check_piece_move(self, x1: int, y1: int, x2: int, y2: int) -> bool:
         """Check whether attempted move is in valid moves for piece."""
@@ -230,9 +257,36 @@ class State:
             self._tensor[
                 :,
                 :,
-                int(self._player) * Board.num_pieces : (1 + int(self._player))
+                int(not self._player) * Board.num_pieces : (1 + int(not self._player))
                 * Board.num_pieces,
             ].to(bool)
+        )
+
+    def check_captured_value_termination(self) -> bool:
+        """Check whether game has ended due to captures."""
+        return (
+            self._captured_value[0] >= Board.max_capture_value / 2
+            or self._captured_value[1] >= Board.max_capture_value / 2
+        )
+
+    def check_capture_call_termination(self) -> bool:
+        """Check game status by capture call."""
+        return self._since_capture_call >= Board.capture_clock
+
+    def check_capture_termination(self) -> bool:
+        """Check if the game has ended due to no captures.
+
+        Needed to get non infinite Episodes.
+        """
+        return self._since_capture >= 100
+
+    def game_over(self) -> bool:
+        """Check all termination status."""
+        return (
+            self.check_half_empty()
+            or self.check_captured_value_termination()
+            or self.check_capture_call_termination()
+            or self.check_capture_termination()
         )
 
     # --- Board Manipulations ---
@@ -240,12 +294,14 @@ class State:
         """Make move corresponding to index."""
         capture_layer: torch.Tensor = torch.where(self._tensor[:, x2, y2])[0]
         if capture_layer.nelement() != 0:
-            capture_piece = Board.piece_from_layer(capture_layer)
-            capture_value = Board.value_from_piece(capture_piece)
+            capture_value = Board.value_from_layer(capture_layer)
             self._since_capture += 1
-            self._captured_value += capture_value
-            logger.debug("Capturing")
-        # Benchmarked this: Faster than setting with add/remove_piece and where. TODO: Retest after additional logic.
+            logger.debug(
+                "Capturing %s with value %i",
+                Board.piece_from_layer(capture_layer),
+                Board.value_from_layer(capture_layer),
+            )
+            self._captured_value[int(self._player)] += float(capture_value)
         i1, i2 = Board.half_indices(y1)
         j1, j2 = Board.half_indices(y2)
         logger.debug(
@@ -280,7 +336,10 @@ class State:
 
     def captured_value_channel(self) -> torch.Tensor:
         """Generate entire layer of player values."""
-        return torch.full(Board.board_size, int(self._captured_value))
+        layer: torch.Tensor = torch.empty(Board.board_size)
+        layer[:, : Board.y // 2] = self._captured_value[0]
+        layer[:, Board.y // 2 :] = self._captured_value[1]
+        return layer
 
     def since_capture_channel(self) -> torch.Tensor:
         """Generate entire layer of player values."""
