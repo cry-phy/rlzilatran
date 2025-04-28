@@ -182,7 +182,7 @@ class __BoardMaster:
         other_mask = state.get_player_mask(not state.player)
         max_steps = max(self.BOARD_SIZE) - 1
         for direction in self._OFFICER_DIRECTIONS:
-            for i in range(1, max_steps):
+            for i in range(1, max_steps + 1):
                 xi, yi = origin + i * direction
                 if not self.valid_position(xi, yi):
                     break

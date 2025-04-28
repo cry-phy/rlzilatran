@@ -99,9 +99,18 @@ class Game:
         """Check game status."""
         return self.state.game_over()
 
-    def winner(self) -> bool:
+    def winner(self) -> bool | None:
         """Game winner."""
-        ...
+        if (
+            self.state.captured_value[int(False)]
+            == self.state.captured_value[int(True)]
+        ):
+            return None
+        else:
+            return (
+                self.state.captured_value[int(False)]
+                <= self.state.captured_value[int(True)]
+            )
 
 
 class RecordGame(Game):

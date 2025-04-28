@@ -1,12 +1,19 @@
 from tkinter import Event
 from game.game import Game
-from enum import Enum
+from enum import Enum, auto
 
 
 class Tool(Enum):
     """Enum for handling selected tool."""
 
-    NONE = 0
+    MOVE = auto()
+    INMOVE = auto()
+    ADDP = auto()
+    ADDS = auto()
+    ADDO = auto()
+    REMOVE = auto()
+    FORCE_SELECT = auto()
+    FORCE_MOVE = auto()
 
 
 class BaseAgent:
@@ -37,21 +44,36 @@ class BaseAgent:
     @property
     def selected_var(self):
         """The selected_var property."""
-        return 0
+        raise NotImplementedError
 
     @selected_var.setter
     def selected_var(self, value):
-        self._selected_var = value
+        raise NotImplementedError
 
     @property
     def move_ready(self) -> bool:
         """Move ready flag."""
         return self._move_ready
 
+    @property
+    def cell_size(self):
+        """The CELL_SIZE property."""
+        raise NotImplementedError
+
+    @cell_size.setter
+    def cell_size(self, value):
+        raise NotImplementedError
+
     def generate_move(self) -> tuple[int, int, int, int]:
         """Generate a move for the current game."""
         raise NotImplementedError
 
+    def make_move(self, x1, y1, x2, y2) -> None:
+        """Hnd throug hmove reset move ready."""
+        self._game.make_move(x1, y1, x2, y2)
+        self._move_ready = False
+
+    # -- Functions for GUI --
     def handle_click(self, event: Event) -> None:
         """Handle a click event.
 
@@ -60,7 +82,6 @@ class BaseAgent:
         """
         pass
 
-    # -- Functions for GUI --
     def _select_tool(self, tool: Tool) -> None:
         """Centralize tool selection logic."""
         pass

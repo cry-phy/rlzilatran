@@ -25,6 +25,7 @@ class UIObserver(BaseObserver):
 
         self.game = game
         self.selected_positions: list[tuple[int, int]] = []
+        self.possible_moves: torch.IntTensor = torch.empty(0, 2)
 
         # --- Menu Bar ---
         self.menubar = Menu(self.root)
@@ -130,6 +131,8 @@ class UIObserver(BaseObserver):
             return
         real_w, real_h = w * 0.96, h * 0.96
         self.CELL_SIZE = int(real_h / self.ROWS)
+        self._agents[0]._CELL_SIZE = self.CELL_SIZE
+        self._agents[1]._CELL_SIZE = self.CELL_SIZE
         self.FONT_SIZE = int(15 * self.CELL_SIZE / 80)
         self.SMALL_FONT = int(2 * self.FONT_SIZE / 3)
         logger.debug(
@@ -202,22 +205,23 @@ class UIObserver(BaseObserver):
 
     def draw_selected(self) -> None:
         """Draw selected square."""
-        print(self.selected_positions, len(self.selected_positions))
-        if len(self.selected_positions) != 0:
+        print(self.selected_positions)
+        if self.selected_positions:
             for position in self.selected_positions:
+                print(position)
                 self.canvas.create_rectangle(
                     *self._get_cell_boundaries(*position),
                     outline="black",
                     fill="lightblue",
                 )
-        if len(self.selected_positions) == 1:
-            moves = self._current_agent().possible_moves(*self.selected_positions[0])
-            for move in moves:
-                self.canvas.create_rectangle(
-                    *self._get_cell_boundaries(int(move[0]), int(move[1])),
-                    outline="black",
-                    fill="orchid1",
-                )
+                moves = self._current_agent().possible_moves(*position)
+                print(moves)
+                for move in moves:
+                    self.canvas.create_rectangle(
+                        *self._get_cell_boundaries(int(move[0]), int(move[1])),
+                        outline="black",
+                        fill="orchid1",
+                    )
 
     def on_save(self) -> None:
         """Save current game as json."""
@@ -253,8 +257,9 @@ class UIObserver(BaseObserver):
         """Recognize cell click."""
         agent = self._current_agent()
         if agent.clickable:
+            logger.debug("Handing Event to clickable %s.", type(agent))
             agent.handle_click(event)
-
+        self.selected_positions = agent.selected_positions()
         self.redraw_board()
 
     def draw_board(self) -> None:
@@ -289,7 +294,8 @@ class UIObserver(BaseObserver):
         """Make agent make a move."""
         agent = self._current_agent()
         x1, y1, x2, y2 = agent.generate_move()
-        self.game.make_move(x1, y1, x2, y2)
+        agent.make_move(x1, y1, x2, y2)
+        self.redraw_board()
 
     def _generate_steps(self) -> None:
         """Recursively do steps."""
@@ -300,6 +306,8 @@ class UIObserver(BaseObserver):
                 self.move()
                 if not self.game.game_over():
                     self.wait()
+                else:
+                    logger.debug("Finished game.")
             else:
                 self.wait()
         else:

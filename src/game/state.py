@@ -155,10 +155,12 @@ class State:
         data = self.state_dict().copy()
         board_size = data.pop("board_size")
 
+        logger.debug("Dumping data %s", data)
         meta_str = json.dumps(data, indent=2).rstrip()
         if meta_str.endswith("}"):
             meta_str = meta_str[:-1]
 
+        logger.debug("Dumping tensor and board size.")
         with open(path, "w") as f:
             f.write(meta_str)
             f.write(',\n  "board_size": ')
@@ -299,7 +301,7 @@ class State:
                 Board.piece_from_layer(capture_layer),
                 Board.value_from_layer(capture_layer),
             )
-            self._captured_value[int(self._player)] += capture_value
+            self._captured_value[int(self._player)] += float(capture_value)
         i1, i2 = Board.half_indices(y1)
         j1, j2 = Board.half_indices(y2)
         logger.debug(
