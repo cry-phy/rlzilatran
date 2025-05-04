@@ -13,7 +13,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 class Game:
     """Game/States/Rules."""
 
-    HIST_LEN = 8
+    HIST_LEN = Board.HISTORY_LENGTH
 
     def __init__(self, state: State, last_moves: deque[torch.IntTensor]) -> None:
         """Generate Game instance.

@@ -86,6 +86,9 @@ class __BoardMaster:
         self.NUM_LAYERS = 2 * len(self._pieces)
         self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
         self.MAX_MOVES = self.x * self.y + 1
+        self.HISTORY_LENGTH = 8
+        self.CHANNEL_NUMBER = (len(self._pieces) * 2) * self.HISTORY_LENGTH + 4
+        self.NUM_LEAVES = 256
         self._capture_clock = 7
         self._piece_unique_dict: dict[str, int] = {
             key: i for i, key in enumerate(self._pieces)
@@ -195,10 +198,6 @@ class __BoardMaster:
             return torch.empty((0, 2), dtype=torch.int32)
         return torch.IntTensor(moves)
 
-    def _generate_move_tensor(self) -> torch.Tensor:
-        """Generate empty output tensor."""
-        torch.zeros()
-
     def _set_piece_position(self, key: str) -> None:
         """Set all piece positions."""
         x, y = self._initial_piece_dictionary[key]
@@ -306,6 +305,18 @@ class __BoardMaster:
     def move_tensor_shape(self) -> tuple[int, int, int]:
         """Get shape for move tensor."""
         return (*self.board_size, self.MAX_MOVES)
+
+    @property
+    def state_tensor_shape(self) -> tuple[int, int, int]:
+        return (*self.board_size, self.CHANNEL_NUMBER)
+
+    @property
+    def leaf_batch_shape(self) -> tuple[int, int, int, int]:
+        return (*self.state_tensor_shape, self.NUM_LEAVES)
+
+    @property
+    def value_batch_shape(self) -> int:
+        return self.NUM_LEAVES
 
 
 Board = __BoardMaster()
