@@ -315,8 +315,8 @@ class __BoardMaster:
         return (*self.state_tensor_shape, self.NUM_LEAVES)
 
     @property
-    def value_batch_shape(self) -> int:
-        return self.NUM_LEAVES
+    def value_batch_shape(self) -> tuple[int]:
+        return (self.NUM_LEAVES,)
 
 
 Board = __BoardMaster()

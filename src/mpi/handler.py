@@ -1,5 +1,6 @@
 from enum import IntEnum, auto
 from game.utils import Board
+from mpi.processes import MPIProcess
 from mpi4py import MPI
 import torch
 import numpy as np
@@ -16,15 +17,49 @@ class Tag(IntEnum):
 
 
 # The following 3 are all on different Communicators
-TRAINING_RANK = 0
-INFERENCE_RANK = 0
-OBSERVER_RANK = 0
+TRAINING_WRANK = 0
+INFERENCE_NRANK = 0
+OBSERVER_ORANK = 0
+
+
+class TokenHandler:
+    """Handler for integer message Tokens.
+
+    Currently only creates unique tokens on rank.
+    """
+
+    def __init__(self) -> None:
+        """Set token starting value to 0."""
+        self.__current_id = 0
+
+    def new(self) -> np.ndarray:
+        """Generate a new token."""
+        self.__current_id += 1
+        return np.full(1, self.__current_id, dtype="i8")
+
+    def empty_message(self, data_shape: tuple):
+        """Generate an empty message buffer."""
+        message: np.ndarray = np.empty(
+            dtype=[
+                ("token", "i8"),
+                ("data", "f4", *data_shape),
+            ]
+        )
+        return message
+
+    def tokenize_data(self, data: np.ndarray) -> np.ndarray:
+        """Copy Data into structure array and add a token."""
+        message = self.empty_message(data.shape)
+        message["token"] = self.new()
+        message["data"] = data
+        return message
 
 
 class MPIHandler:
     """MPI Handler singleton."""
 
     _instance = None
+    token = TokenHandler()
 
     def __new__(cls) -> "MPIHandler":
         """Singleton Instance."""
@@ -47,32 +82,32 @@ class MPIHandler:
         self._wsize: int = self.wcomm.Get_size()
 
         # Node comm setup
-        training_color = MPI.UNDEFINED if self._wrank == TRAINING_RANK else 0
+        training_color = MPI.UNDEFINED if self._wrank == TRAINING_WRANK else 0
         avail_comm = self.wcomm.Split(training_color, self._wrank)
         self.ncomm: MPI.COMM = avail_comm.Split_type(MPI.MPI_COMM_TYPE_SHARED)
         self._nrank: int = self.ncomm.Get_rank()
         self._nsize: int = self.ncomm.Get_size()
 
         # Observer-Agent comm setup
-        inference_color = MPI.UNDEFINED if self._wrank == OBSERVER_RANK else 0
+        inference_color = MPI.UNDEFINED if self._wrank == OBSERVER_ORANK else 0
         self.ocomm = self.ncomm.Split(inference_color, self._nrank)
-        self._nrank: int = self.ocomm.Get_rank()
-        self._nsize: int = self.ocomm.Get_size()
+        self._orank: int = self.ocomm.Get_rank()
+        self._osize: int = self.ocomm.Get_size()
 
         # Get world comm ranks of inference ranks
-        if self._wrank == TRAINING_RANK:
-            is_inference_process = self.wcomm.allgather(self._nrank == INFERENCE_RANK)
+        if self._wrank == TRAINING_WRANK:
+            is_inference_process = self.wcomm.allgather(self._nrank == INFERENCE_NRANK)
             self.inference_wranks = torch.where(torch.BoolTensor(is_inference_process))
         else:
-            self.wcomm.allgather(self._nrank == INFERENCE_RANK)
+            self.wcomm.allgather(self._nrank == INFERENCE_NRANK)
             self.inference_wranks = []
 
-        self.inference_wranks = self.wcomm.bcast(self.inference_wranks, TRAINING_RANK)
+        self.inference_wranks = self.wcomm.bcast(self.inference_wranks, TRAINING_WRANK)
 
         # Weight sending comm setup
         cnn_color = (
             0
-            if self._wrank in self.inference_wranks or self._wrank == TRAINING_RANK
+            if self._wrank in self.inference_wranks or self._wrank == TRAINING_WRANK
             else MPI.UNDEFINED
         )
         self.cnncomm = self.wcomm.Split(cnn_color, self._wrank)
@@ -80,14 +115,20 @@ class MPIHandler:
         self._cnnsize: int = self.cnncomm.Get_size()
 
         # Broadcast training rank in the cnn comm to all
-        self._cnn_training_rank = self.wcomm.bcast(self._cnnrank, TRAINING_RANK)
+        self._cnn_training_rank = self.wcomm.bcast(self._cnnrank, TRAINING_WRANK)
+
+        self.OBSERVER_ORANK = OBSERVER_ORANK
 
     def send_episode(self, states: torch.Tensor, values: torch.Tensor) -> None:
         """Send the episode data to the training Rank."""
         np_states = states.numpy()
         np_values = values.numpy()
-        self.wcomm.Isend([np_states, MPI.FLOAT], TRAINING_RANK, int(Tag.EPISODE_STATES))
-        self.wcomm.Isend([np_values, MPI.FLOAT], TRAINING_RANK, int(Tag.EPISODE_VALUES))
+        self.wcomm.Isend(
+            [np_states, MPI.FLOAT], TRAINING_WRANK, int(Tag.EPISODE_STATES)
+        )
+        self.wcomm.Isend(
+            [np_values, MPI.FLOAT], TRAINING_WRANK, int(Tag.EPISODE_VALUES)
+        )
 
     def probe_episode(self, source: int) -> bool:
         """Probe if episode was sent from rank."""
@@ -138,18 +179,21 @@ class MPIHandler:
         In the future it might be helpfull to switch to torch.distribution to allow
         for NCCL direct GPU-GPU interaction.
         """
-        if not self._wrank == TRAINING_RANK:
+        if not self._wrank == TRAINING_WRANK:
             flat_weights = np.empty(size)
         req: MPI.Request = self.cnncomm.Ibcast(
-            [flat_weights, MPI.FLOAT], self._cnn_training_rank
+            [flat_weights, MPI.FLOAT],
+            self._cnn_training_rank,
         )
-        if not self._wrank == TRAINING_RANK:
+        if not self._wrank == TRAINING_WRANK:
             req.Wait()
         return flat_weights
 
-    def bcast_decided_move(self, move: tuple[int, int, int, int]) -> None:
+    def bcast_decided_move(
+        self, move: tuple[int, int, int, int]
+    ) -> tuple[int, int, int, int]:
         """Broadcast new game state to all agents."""
-        return self.ocomm.bcast(move, OBSERVER_RANK)
+        return self.ocomm.bcast(move, OBSERVER_ORANK)
 
     def reduce_move_tensors(self, move_tensor: torch.Tensor) -> torch.Tensor:
         """Gather all move suggestion tensors from agents."""
@@ -158,66 +202,42 @@ class MPIHandler:
         self.ocomm.AllReduce(move_numpy, move_numpy_sum, MPI.SUM)
         return torch.from_numpy(move_numpy_sum)
 
-    def send_leaf_batch(self, leaf_batch: torch.Tensor) -> None:
-        """Send Leaf batch to inference."""
+    def send_leaf_batch(self, leaf_batch: torch.Tensor) -> int:
+        """Send Leaf batch to inference, returning a unique Token."""
         np_leaves = leaf_batch.numpy()
-        self.ncomm.Isend(np_leaves, INFERENCE_RANK, int(Tag.LEAF_BATCH))
+        message = self.token.tokenize_data(np_leaves)
+        self.ncomm.Isend([message, MPI.BYTE], INFERENCE_NRANK, int(Tag.LEAF_BATCH))
+        return int(message["token"])
 
     def probe_leaf_batch(self, nsource: int) -> bool:
         """Check if leaf batch from nsource exists."""
         return self.ncomm.Iprobe(nsource, int(Tag.LEAF_BATCH))
 
-    def recv_leaf_batch(self, nsource: int) -> tuple[int, MPI.Request, torch.Tensor]:
+    def recv_leaf_batch(
+        self, nsource: int
+    ) -> tuple[MPI.Request, int, int, torch.Tensor]:
         """Recieve Leaf batch and nsource from evaluation."""
-        np_leaves = np.empty(Board.leaf_batch_shape)
-        req: MPI.Request = self.ncomm.Irecv(np_leaves, nsource, int(Tag.LEAF_BATCH))
-        return nsource, req, torch.from_numpy(np_leaves)
+        message = self.token.empty_message(Board.leaf_batch_shape)
+        req: MPI.Request = self.ncomm.Irecv(message, nsource, int(Tag.LEAF_BATCH))
+        return req, nsource, int(message["token"]), torch.from_numpy(message["data"])
 
-    def send_value_batch(self, ntarget: int, values: torch.Tensor) -> None:
+    def send_value_batch(self, ntarget: int, values: torch.Tensor) -> int:
         """Send value batch to target nrank."""
         np_values = values.numpy()
-        self.ncomm.Isend(np_values, ntarget, int(Tag.VALUE_BATCH))
+        message = self.token.tokenize_data(np_values)
+        self.ncomm.Isend([message, MPI.BYTE], ntarget, int(Tag.VALUE_BATCH))
+        return int(message["token"])
 
     def probe_value_batch(self, nsource: int) -> bool:
         """Check if a value batch."""
         return self.ncomm.Iprobe(nsource, int(Tag.VALUE_BATCH))
 
-    def recv_value_batch(self) -> torch.Tensor:
+    def recv_value_batch(self) -> tuple[int, torch.Tensor]:
         """Recieve Value batch from Agent on nrank."""
-        np_values = np.empty(Board.value_batch_shape)
-        self.ncomm.Recv(np_values, INFERENCE_RANK, int(Tag.VALUE_BATCH))
+        message = self.token.empty_message(Board.value_batch_shape)
+        self.ncomm.Recv([message, MPI.BYTE], INFERENCE_NRANK, int(Tag.VALUE_BATCH))
+        return int(message["token"]), torch.from_numpy(message["data"])
 
-    def get_process(self) -> "MPIProcess":
+    def get_process(self) -> MPIProcess:
         """Return the MPIProcess that is supposed to be run on this Rank."""
         raise NotImplementedError
-
-
-class MPIProcess:
-    """Base Class of for Process execution.
-
-    Allows for uniform starting of all Processes as MPIHandler returns
-    an Instance of the appropriate MPIProcess, which only has to be run after.
-    """
-
-    def run(self) -> None:
-        """Run the Process."""
-        raise NotImplementedError
-
-
-class TrainingProcess(MPIProcess):
-    """Initialize process runng batching and training CNN."""
-
-
-class InferenceProcess(MPIProcess):
-    """Initialize process running Inference of the CNN."""
-
-
-class AgentProcess(MPIProcess):
-    """Initialize Process acting only as Observer."""
-
-
-class ObserverProcess(MPIProcess):
-    """Initialize Process acting as Observer.
-
-    This is part of the ocomm and therefore also runs Agent search.
-    """

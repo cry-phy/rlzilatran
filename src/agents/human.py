@@ -110,6 +110,13 @@ class HumanAgent(BaseAgent):
         """Generate a move."""
         return copy(self._move)
 
+    def generate_move_tensor(self) -> torch.Tensor:
+        """Generate move tensor."""
+        move_tensor = torch.zeros(Board.move_tensor_shape)
+        if self.mpi._orank == self.mpi.OBSERVER_ORANK:
+            move_tensor[self._move] = 1
+        return move_tensor
+
     def possible_moves(self, x: int, y: int) -> torch.IntTensor:
         """Generate a move."""
         if self.selected == Tool.INMOVE:

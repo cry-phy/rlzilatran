@@ -1,6 +1,8 @@
 from tkinter import Event
 from game.game import Game
 from enum import Enum, auto
+from mpi.handler import MPIHandler
+import torch
 
 
 class Tool(Enum):
@@ -31,6 +33,7 @@ class BaseAgent:
         self._root = None
         self._player = game.state.player
         self._move_ready = False
+        self.mpi = MPIHandler()
 
     @property
     def player(self):
@@ -55,6 +58,39 @@ class BaseAgent:
         """Move ready flag."""
         return self._move_ready
 
+    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+        """Generate a move for the current game."""
+        raise NotImplementedError
+
+    def generate_move_tensor(self) -> torch.Tensor:
+        """Generate move tensor."""
+        raise NotImplementedError
+
+    def make_move(self, x1, y1, x2, y2) -> None:
+        """Make specific move."""
+        self._game.make_move(x1, y1, x2, y2)
+        self._move_ready = False
+
+    # -- MPI compatability --
+    def bcast_move(self, move: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+        """Broadcast the next move to all node ranks."""
+        bcast_move = self.mpi.bcast_decided_move(move)
+        return bcast_move
+
+    def reduce_move_tensors(self) -> torch.Tensor:
+        """Reduce the move tensor to observer rank."""
+        sum_move_tensor = self.mpi.reduce_move_tensors(self.generate_move_tensor())
+        return sum_move_tensor
+
+    def send_leaf_batch(self) -> tuple[int, torch.Tensor]:
+        """Send state tensor and Token to inference rank."""
+        raise NotImplementedError
+
+    def recv_value_batch(self) -> tuple[int, torch.Tensor]:
+        """Recv values and Token for previously sent leaf batch."""
+        raise NotImplementedError
+
+    # -- Functions for GUI --
     @property
     def cell_size(self):
         """The CELL_SIZE property."""
@@ -64,16 +100,6 @@ class BaseAgent:
     def cell_size(self, value):
         raise NotImplementedError
 
-    def generate_move(self) -> tuple[int, int, int, int]:
-        """Generate a move for the current game."""
-        raise NotImplementedError
-
-    def make_move(self, x1, y1, x2, y2) -> None:
-        """Hnd throug hmove reset move ready."""
-        self._game.make_move(x1, y1, x2, y2)
-        self._move_ready = False
-
-    # -- Functions for GUI --
     def handle_click(self, event: Event) -> None:
         """Handle a click event.
 
