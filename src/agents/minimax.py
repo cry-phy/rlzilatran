@@ -72,17 +72,13 @@ class MinimaxAgent(BaseAgent):
             valuations[index] = self._weights[key] * self._metrics[key](game)
         return valuations.sum()
 
-    def generate_move(self) -> tuple[int, int, int, int]:
-        """Generate a move for the current game."""
-        return 0, 0, 0, 0
-
     def minimax(self, depth: int, game: Game) -> float:
         """Actual minimax algorithm in recursion format."""
-        if depth == self._depth or self.game.game_over():
-            return self.state_valuation(game)
+        if depth == self._depth or self._game.game_over():
+            return self.single_state_valuation(game)
 
         state_value: float = 0
-        if self._player == self.game.player:
+        if self._player == self._game.state.player:
             best: float = -float("inf")
             for x, y, index in game.all_moves():
                 new_game: Game = game.copy()
@@ -98,10 +94,20 @@ class MinimaxAgent(BaseAgent):
                 best = min(best, val)
         return state_value
 
-    def move_value_tensor(self) -> torch.Tensor:
+    # -- MPI compatability --
+    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+        """Generate a move for the current game."""
+        move_indices = torch.argmax(move_tensor)
+        x1: int = move_indices[0]
+        y1: int = move_indices[1]
+        x2, y2 = Board.move_from_index(move_indices[2])
+        return x1, y1, x2, y2
+
+    def generate_move_tensor(self) -> None:
         """Generate move tensor."""
         move_valuations = torch.zeros(Board.move_tensor_shape)
-        for x, y, index in self.game.all_moves():
-            game: Game = self.game.copy()
+        for x, y, index in self._game.all_moves():
+            game: Game = self._game.copy()
             move_valuations[x, y, index] = self.minimax(1, game)
-        return move_valuations
+        self._value = float(torch.max(move_valuations))
+        self._move_tensor = move_valuations

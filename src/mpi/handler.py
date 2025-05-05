@@ -2,7 +2,13 @@ from enum import IntEnum, auto
 from agents.base import BaseAgent
 from game.game import Game
 from game.utils import Board
-from mpi.processes import MPIProcess
+from mpi.processes import (
+    AgentProcess,
+    InferenceProcess,
+    MPIProcess,
+    ObserverProcess,
+    TrainingProcess,
+)
 from mpi4py import MPI
 from observer.base import BaseObserver
 import torch
@@ -120,6 +126,8 @@ class MPIHandler:
         # Broadcast training rank in the cnn comm to all
         self._cnn_training_rank = self.wcomm.bcast(self._cnnrank, TRAINING_WRANK)
 
+        self.TRAINING_WRANK = TRAINING_WRANK
+        self.INFERENCE_NRANK = INFERENCE_NRANK
         self.OBSERVER_ORANK = OBSERVER_ORANK
 
     # Send Episode Data from Observer to Training
@@ -208,17 +216,28 @@ class MPIHandler:
 
     # -- Synchronize Observer and Agents
     def bcast_decided_move(
-        self, move: tuple[int, int, int, int]
+        self, move: tuple[int, int, int, int] | None
     ) -> tuple[int, int, int, int]:
         """Broadcast new game state to all agents."""
+        if self._orank == OBSERVER_ORANK:
+            if move is None:
+                raise ValueError("Attempting to Bcast None from OBSERVER_ORANK.")
+        else:
+            if move is not None:
+                raise ValueError("Attempting to send data on Agent Rank.")
         return self.ocomm.bcast(move, OBSERVER_ORANK)
 
     def reduce_move_tensors(self, move_tensor: torch.Tensor) -> torch.Tensor:
         """Gather all move suggestion tensors from agents."""
         move_numpy_sum = np.empty(Board.move_tensor_shape)
         move_numpy = move_tensor.numpy()
-        self.ocomm.AllReduce(move_numpy, move_numpy_sum, MPI.SUM)
+        self.ocomm.Reduce(move_numpy, move_numpy_sum, MPI.SUM)
         return torch.from_numpy(move_numpy_sum)
+
+    def reduce_values(self, value: float) -> float | None:
+        """Reduce values from all ocomm."""
+        red_value: float | None = self.ocomm.reduce(value, MPI.SUM, OBSERVER_ORANK)
+        return red_value
 
     # -- Leaves from Agents to Inference --
     def send_leaf_batch(self, leaf_batch: torch.Tensor) -> int:
@@ -285,12 +304,16 @@ class MPIHandler:
 
     # -- In process setup --
     def bcast_observer_agents(
-        self, observer: BaseObserver
+        self, observer: BaseObserver | None
     ) -> tuple[Game, tuple[BaseAgent, BaseAgent]]:
         """Distribute Game and Agents to ocomm."""
         if self._orank == self.OBSERVER_ORANK:
+            if observer is None:
+                raise ValueError("Must provide Observer on OBSERVER_ORANK.")
             data = (observer._game, observer._agents)
         else:
+            if observer is not None:
+                raise ValueError("Do not provide a valid Observer on an Agent Rank.")
             data = (None, (None, None))
         recv_data = self.ocomm.bcast(data, self.OBSERVER_ORANK)
         return recv_data
@@ -298,4 +321,11 @@ class MPIHandler:
     # -- Prepare Processes --
     def get_process(self) -> MPIProcess:
         """Return the MPIProcess that is supposed to be run on this Rank."""
-        raise NotImplementedError
+        if self._wrank == self.TRAINING_WRANK:
+            return TrainingProcess()
+        elif self._nrank == self.INFERENCE_NRANK:
+            return InferenceProcess()
+        elif self._orank == self.OBSERVER_ORANK:
+            return ObserverProcess()
+        else:
+            return AgentProcess()

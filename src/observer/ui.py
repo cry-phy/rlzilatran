@@ -301,7 +301,7 @@ class UIObserver(BaseObserver):
             self.pre_clickable_input()
             if agent.move_ready:
                 self.move()
-                if not self.game.game_over():
+                if not self._game.game_over():
                     self.wait()
                 else:
                     logger.debug("Finished game.")

@@ -1,6 +1,7 @@
 from tkinter import Event
 from game.game import Game
 from enum import Enum, auto
+from game.utils import Board
 from mpi.handler import MPIHandler
 import torch
 
@@ -33,6 +34,8 @@ class BaseAgent:
         self._root = None
         self._player = game.state.player
         self._move_ready = False
+        self._move_tensor = torch.zeros(Board.move_tensor_shape)
+        self._value = 0
         self.mpi = MPIHandler()
 
     @property
@@ -62,8 +65,12 @@ class BaseAgent:
         """Generate a move for the current game."""
         raise NotImplementedError
 
-    def generate_move_tensor(self) -> torch.Tensor:
-        """Generate move tensor."""
+    def generate_move_tensor(self) -> None:
+        """Generate move tensor and value."""
+        raise NotImplementedError
+
+    def get_state_value(self) -> float:
+        """Get evaluation of current State."""
         raise NotImplementedError
 
     def make_move(self, x1, y1, x2, y2) -> None:
@@ -72,15 +79,22 @@ class BaseAgent:
         self._move_ready = False
 
     # -- MPI compatability --
-    def bcast_move(self, move: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    def bcast_move(
+        self, move: tuple[int, int, int, int] | None
+    ) -> tuple[int, int, int, int]:
         """Broadcast the next move to all node ranks."""
         bcast_move = self.mpi.bcast_decided_move(move)
         return bcast_move
 
     def reduce_move_tensors(self) -> torch.Tensor:
         """Reduce the move tensor to observer rank."""
-        sum_move_tensor = self.mpi.reduce_move_tensors(self.generate_move_tensor())
+        sum_move_tensor = self.mpi.reduce_move_tensors(self._move_tensor)
         return sum_move_tensor
+
+    def reduce_values(self) -> float | None:
+        """Reduce values from all ocomm."""
+        red_value: float | None = self.mpi.reduce_values(self._value)
+        return red_value
 
     # -- Functions for GUI --
     @property

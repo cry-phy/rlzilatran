@@ -74,7 +74,7 @@ class Game:
             return move_generator(x, y, self.state)
 
     @property
-    def training_tensor(self) -> torch.Tensor:
+    def state_tensor(self) -> torch.Tensor:
         """Stack the history and add additional information."""
         torch.cat([*self.last_moves, *self.state.get_additional_channels()], dim=0)
 

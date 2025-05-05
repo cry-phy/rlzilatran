@@ -1,5 +1,7 @@
 from agents.base import BaseAgent
 from game.game import Game
+from game.utils import Board
+from mpi.handler import MPIHandler
 import torch
 
 
@@ -18,14 +20,11 @@ class BaseObserver:
         self._game = game
         self._agents = agents
         self._game_over = False
-        # Data: state_tensor, value, move_tensor
-        self._data: list[
-            tuple[
-                torch.Tensor,
-                int,
-                torch.Tensor,
-            ]
-        ] = []
+        self._state_data: list[torch.Tensor] = []
+        self._value_data: list[float] = []
+        self._move_data: list[torch.Tensor] = []
+        self._num_data: int = 0
+        self.mpi = MPIHandler()
 
     @classmethod
     def self_play(
@@ -72,15 +71,32 @@ class BaseObserver:
     def add_data(
         self,
         state_tensor: torch.Tensor,
+        value: float,
         move_tensor: torch.Tensor,
-        value: int,
     ) -> None:
         """Add move data to the history."""
-        self._data.append((state_tensor, value, move_tensor))
+        self._state_data.append(state_tensor)
+        self._value_data.append(value)
+        self._move_data.append(move_tensor)
+        self._num_data += 1
 
-    def get_data(self) -> torch.Tensor:
-        """Get a segment of data."""
-        raise NotImplementedError
+    def batch_ready(self) -> bool:
+        """Check if batch is full."""
+        return self._num_data >= Board.NUM_LEAVES
+
+    def reset_data(self) -> None:
+        """Remove Data and reset counter."""
+        self._state_data = []
+        self._value_data = []
+        self._move_data = []
+        self._num_data = 0
+
+    def send_epsiode(self) -> None:
+        """Send batch of move data to Training."""
+        states = torch.stack(self._state_data)
+        values = torch.Tensor(self._value_data)
+        moves = torch.stack(self._move_data)
+        self.mpi.send_episode(states, values, moves)
 
     def run(self) -> None:
         """Run indefinitely."""
