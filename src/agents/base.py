@@ -82,14 +82,6 @@ class BaseAgent:
         sum_move_tensor = self.mpi.reduce_move_tensors(self.generate_move_tensor())
         return sum_move_tensor
 
-    def send_leaf_batch(self) -> tuple[int, torch.Tensor]:
-        """Send state tensor and Token to inference rank."""
-        raise NotImplementedError
-
-    def recv_value_batch(self) -> tuple[int, torch.Tensor]:
-        """Recv values and Token for previously sent leaf batch."""
-        raise NotImplementedError
-
     # -- Functions for GUI --
     @property
     def cell_size(self):

@@ -311,6 +311,16 @@ class __BoardMaster:
         return (*self.board_size, self.CHANNEL_NUMBER)
 
     @property
+    def state_tensor_batch_shape(self) -> tuple[int, int, int, int]:
+        """Get shape for move tensor."""
+        return (*self.state_tensor_shape, self.NUM_LEAVES)
+
+    @property
+    def move_tensor_batch_shape(self) -> tuple[int, int, int, int]:
+        """Get shape for move tensor."""
+        return (*self.move_tensor_shape, self.NUM_LEAVES)
+
+    @property
     def leaf_batch_shape(self) -> tuple[int, int, int, int]:
         return (*self.state_tensor_shape, self.NUM_LEAVES)
 

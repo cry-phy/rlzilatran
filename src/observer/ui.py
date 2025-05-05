@@ -3,7 +3,7 @@ from game.game import Game
 from game.state import State
 from game.utils import Board
 from observer.base import BaseObserver
-from agents.human import Tool
+from agents.human import HumanAgent, Tool
 import tkinter as tk
 from tkinter import Event, Menu, filedialog, messagebox
 import torch
@@ -23,7 +23,6 @@ class UIObserver(BaseObserver):
         self.root = tk.Tk()
         self.root.title("Katruji / Zilatran Chess")
 
-        self.game = game
         self.selected_positions: list[tuple[int, int]] = []
         self.possible_moves: torch.IntTensor = torch.empty(0, 2)
 
@@ -65,8 +64,8 @@ class UIObserver(BaseObserver):
 
         # -- Add Binds --
         self.canvas.bind("<Button-1>", self.on_click)
-        self.canvas.bind("<Button-2>", lambda _: self._current_agent()._clear_tool)
-        self.canvas.bind("<Button-3>", lambda _: self._current_agent()._clear_tool)
+        self.canvas.bind("<Button-2>", lambda _: self.current_agent()._clear_tool)
+        self.canvas.bind("<Button-3>", lambda _: self.current_agent()._clear_tool)
         self.root.bind_all("<Control-s>", lambda _: self.on_save())
         self.root.bind_all("<Control-o>", lambda _: self.on_load())
         self.root.bind_all("<Control-n>", lambda _: self.new_empty())
@@ -97,22 +96,22 @@ class UIObserver(BaseObserver):
         ]:
             toolmenu.add_radiobutton(
                 label=label,
-                variable=self._current_agent().selected_var,
+                variable=self.current_agent().selected_var,
                 value=tool.value,
-                command=lambda t=tool: self._current_agent()._select_tool(t),
+                command=lambda t=tool: self.current_agent()._select_tool(t),
             )
         toolmenu.add_separator()
         toolmenu.add_radiobutton(
             label="MOVE",
-            variable=self._current_agent().selected_var,
+            variable=self.current_agent().selected_var,
             value=Tool.MOVE.value,
-            command=lambda: self._current_agent()._select_tool(Tool.MOVE),
+            command=lambda: self.current_agent()._select_tool(Tool.MOVE),
         )
         toolmenu.add_radiobutton(
             label="FORCE",
-            variable=self._current_agent().selected_var,
+            variable=self.current_agent().selected_var,
             value=Tool.FORCE_SELECT.value,
-            command=lambda: self._current_agent()._select_tool(Tool.FORCE_SELECT),
+            command=lambda: self.current_agent()._select_tool(Tool.FORCE_SELECT),
         )
         self.menubar.add_cascade(label="Tools", menu=toolmenu)
 
@@ -131,8 +130,10 @@ class UIObserver(BaseObserver):
             return
         real_w, real_h = w * 0.96, h * 0.96
         self.CELL_SIZE = int(real_h / self.ROWS)
-        self._agents[0]._CELL_SIZE = self.CELL_SIZE
-        self._agents[1]._CELL_SIZE = self.CELL_SIZE
+        if isinstance(self._agents[0], HumanAgent):
+            self._agents[0]._CELL_SIZE = self.CELL_SIZE
+        if isinstance(self._agents[1], HumanAgent):
+            self._agents[1]._CELL_SIZE = self.CELL_SIZE
         self.FONT_SIZE = int(15 * self.CELL_SIZE / 80)
         self.SMALL_FONT = int(2 * self.FONT_SIZE / 3)
         logger.debug(
@@ -156,10 +157,6 @@ class UIObserver(BaseObserver):
         x2: float = x1 + self.CELL_SIZE
         y2: float = y1 + self.CELL_SIZE
         return x1, y1, x2, y2
-
-    def _current_agent(self) -> BaseAgent:
-        """Return the currently at play agent."""
-        return self._agents[self.game.state.player]
 
     def draw_grid(self) -> None:
         """Draw grid on which the Game is rendered."""
@@ -185,7 +182,7 @@ class UIObserver(BaseObserver):
 
     def draw_pieces(self) -> None:
         """Draw pieces."""
-        current_state = self.game.state.state
+        current_state = self._game.state.state
         for piece in Board.pieces:
             piece_layer = (
                 current_state[Board.layer_from_piece(piece)]
@@ -214,7 +211,7 @@ class UIObserver(BaseObserver):
                     outline="black",
                     fill="lightblue",
                 )
-                moves = self._current_agent().possible_moves(*position)
+                moves = self.current_agent().possible_moves(*position)
                 print(moves)
                 for move in moves:
                     self.canvas.create_rectangle(
@@ -230,7 +227,7 @@ class UIObserver(BaseObserver):
             filetypes=[("State files", "*.json"), ("All Files", "*.*")],
         )
         if path:
-            self.game.save(path)
+            self._game.save(path)
             messagebox.showinfo("Save", f"Game saved to {path}")
 
     def on_load(self) -> None:
@@ -240,22 +237,22 @@ class UIObserver(BaseObserver):
             filetypes=[("State files", "*.json"), ("All Files", "*.*")],
         )
         if path:
-            self.game.load(path)
+            self._game.load(path)
             self.redraw_board()
 
     def new_empty(self) -> None:
         """Generate empty board."""
-        self.game.state = State.empty()
+        self._game.state = State.empty()
         self.redraw_board()
 
     def on_restart(self) -> None:
         """Reset game to initial."""
-        self.game.reset()
+        self._game.reset()
         self.redraw_board()
 
     def on_click(self, event: Event) -> None:
         """Recognize cell click."""
-        agent = self._current_agent()
+        agent = self.current_agent()
         if agent.clickable:
             logger.debug("Handing Event to clickable %s.", type(agent))
             agent.handle_click(event)
@@ -292,14 +289,14 @@ class UIObserver(BaseObserver):
 
     def move(self) -> None:
         """Make agent make a move."""
-        agent = self._current_agent()
+        agent = self.current_agent()
         x1, y1, x2, y2 = agent.generate_move()
         agent.make_move(x1, y1, x2, y2)
         self.redraw_board()
 
     def _generate_steps(self) -> None:
         """Recursively do steps."""
-        agent = self._current_agent()
+        agent = self.current_agent()
         if agent.clickable:
             self.pre_clickable_input()
             if agent.move_ready:

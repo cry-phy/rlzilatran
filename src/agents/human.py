@@ -106,16 +106,19 @@ class HumanAgent(BaseAgent):
         self.tool_function_dict[self.selected](x, y)
         return super().handle_click(event)
 
-    def generate_move(self) -> tuple[int, int, int, int]:
-        """Generate a move."""
+    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+        """Generate a move.
+
+        The Human player bypasses the Move selection by only reading on the observer rank.
+        """
         return copy(self._move)
 
     def generate_move_tensor(self) -> torch.Tensor:
-        """Generate move tensor."""
-        move_tensor = torch.zeros(Board.move_tensor_shape)
-        if self.mpi._orank == self.mpi.OBSERVER_ORANK:
-            move_tensor[self._move] = 1
-        return move_tensor
+        """Generate empty move tensor.
+
+        The Human player bypasses the Move selection by only reading on the observer rank.
+        """
+        return torch.zeros(Board.move_tensor_shape)
 
     def possible_moves(self, x: int, y: int) -> torch.IntTensor:
         """Generate a move."""
