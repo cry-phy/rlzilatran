@@ -38,14 +38,54 @@ PIECE_TOOL_DICT = {
 }
 
 
+class DummyAgent(BaseAgent):
+    """Class for the non Observer ranks.
+
+    Does not return any usefull data  but is able to act as a fully implemented Agent.
+    """
+
+    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+        """Generate a move.
+
+        The Human player bypasses the Move selection by only reading on the observer rank.
+        """
+        return (-1, -1, -1, -1)
+
+    def generate_move_tensor(self) -> None:
+        """Generate empty move tensor and value.
+
+        The Human player bypasses the Move selection by only reading on the observer rank.
+        """
+        self._move_tensor = torch.zeros(Board.move_tensor_shape)
+        self._value = -1
+
+    def reduce_move_tensors(self) -> torch.Tensor:
+        """Reduce the move tensor to observer rank."""
+        return self._move_tensor
+
+    def reduce_values(self) -> float | None:
+        """Reduce values from all ocomm."""
+        return self._value
+
+
 class HumanAgent(BaseAgent):
-    """Handle GUI input."""
+    """Handle GUI input from human.
+
+    Needs to run only on the observer rank.
+    """
 
     clickable: bool = True
 
-    def __init__(self, game: Game, workers: tuple[int]) -> None:
+    def __new__(cls, game: Game) -> "HumanAgent | BaseAgent":
+        """Decide beween Human Agent and dummy agent."""
+        if cls.mpi._orank == cls.mpi.OBSERVER_ORANK:
+            return DummyAgent(game)
+        else:
+            return cls(game)
+
+    def __init__(self, game: Game, workers: tuple[int, ...]) -> None:
         """Initialize Human interactible agent."""
-        super().__init__(game, workers)
+        super().__init__(game)
         self.selected: Tool = Tool.MOVE
         self._selected_var: tk.IntVar | None = None
         self._selected_position: tuple[int, int] = (0, 0)
@@ -128,12 +168,14 @@ class HumanAgent(BaseAgent):
             self._value = -1
         self._move_tensor = torch.zeros(Board.move_tensor_shape)
 
-    def possible_moves(self, x: int, y: int) -> torch.IntTensor:
-        """Generate a move."""
-        if self.selected == Tool.INMOVE:
-            return self._possible_moves
-        else:
-            torch.empty(0, 2)
+    # Overwrite MPI interactions since communication is not necessary
+    def reduce_move_tensors(self) -> torch.Tensor:
+        """Reduce the move tensor to observer rank."""
+        return self._move_tensor
+
+    def reduce_values(self) -> float | None:
+        """Reduce values from all ocomm."""
+        return self._value
 
     # -- Tools --
     @on_grid
@@ -203,7 +245,7 @@ class HumanAgent(BaseAgent):
     # -- Click validity --
     def first_click_validity(self, x: int, y: int) -> bool:
         """Check whether square is valid for selection."""
-        return self._game.state.state[:, x, y].sum(axis=0) and Board.player_half(
+        return self._game.state.square_filled(x, y) and Board.player_half(
             y, self._game.state.player
         )
 
@@ -228,3 +270,11 @@ class HumanAgent(BaseAgent):
     def remove_piece(self, x: int, y: int) -> None:
         """Clear square."""
         self._game.state.clear_square(x, y)
+
+    # -- Visuals in GUI --
+    def possible_moves(self, x: int, y: int) -> torch.Tensor:
+        """Generate a move."""
+        if self.selected == Tool.INMOVE:
+            return self._possible_moves
+        else:
+            torch.empty(0, 2)

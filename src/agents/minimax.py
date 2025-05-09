@@ -8,9 +8,9 @@ import torch
 class MinimaxAgent(BaseAgent):
     """Simple Minimax agent as benchmark. Runs only single threaded."""
 
-    def __init__(self, game: Game, workers: tuple[int, ...]) -> None:
+    def __init__(self, game: Game) -> None:
         """Initialize Minimax agent."""
-        super().__init__(game, workers)
+        super().__init__(game)
         self._depth: int = 3
         self._weights: dict[str, float] = {
             "material": 1,
@@ -28,8 +28,7 @@ class MinimaxAgent(BaseAgent):
     @classmethod
     def new(cls, game: Game, depth: int) -> "MinimaxAgent":
         """Generate Minimax agent with depth only."""
-        empty_workers: tuple[int, ...] = ()
-        instance = cls(game, empty_workers)
+        instance = cls(game)
         instance.depth = depth
         return instance
 

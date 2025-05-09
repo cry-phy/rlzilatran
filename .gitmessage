@@ -17,7 +17,6 @@
 # build    : Build system changes
 # revert   : Revert a previous commit
 
-<type>(<scope>): <subject>
 
 # --- Body (optional) ---
 # Explain WHAT and WHY (not HOW)

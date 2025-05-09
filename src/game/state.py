@@ -27,7 +27,7 @@ class State:
 
         Should not be used directly! Use factory Methods instead.
         """
-        self._tensor: torch.IntTensor = tensor
+        self._tensor: torch.Tensor = tensor
         self._player: bool = player
         self._captured_value: list[float] = captured_value
         self._since_capture: int = since_capture
@@ -121,6 +121,7 @@ class State:
         )
 
     def __repr__(self) -> str:
+        """Repr method for debugging."""
         string = "State:"
         string += "\n\t"
         string += "player:              " + str(self._player)
@@ -137,6 +138,7 @@ class State:
         return string
 
     def __str__(self) -> str:
+        """Str method same as Repr for now."""
         return self.__repr__()
 
     # --- File IO ---
@@ -214,7 +216,7 @@ class State:
         """Get layers with pieces on square."""
         return torch.where(self._tensor[:, x, y])[0]
 
-    def get_player_mask(self, player: bool) -> torch.BoolTensor:
+    def get_player_mask(self, player: bool) -> torch.Tensor:
         """Get mask of player."""
         return (
             self._tensor[
@@ -223,13 +225,13 @@ class State:
                 :,
             ]
             .sum(dim=0)
-            .to(bool)
+            .to(dtype=torch.bool)
         )
 
     def player_material(self, player: bool) -> float:
         """Get the material of player."""
         x, y = torch.where(self.get_player_mask(True))
-        positions: torch.IntTensor = torch.stack((x, y), dim=1).T
+        positions: torch.Tensor = torch.stack((x, y), dim=1).T
         layer, _ = torch.where(self.tensor_reference[:, positions[0], positions[1]])
         value: torch.Tensor = Board.value_from_layer(layer)
         return value.sum()
@@ -237,7 +239,7 @@ class State:
     # --- Game Rules ---
     def check_piece_move(self, x1: int, y1: int, x2: int, y2: int) -> bool:
         """Check whether attempted move is in valid moves for piece."""
-        target = torch.IntTensor([x2, y2])
+        target = torch.Tensor([x2, y2])
         piece = Board.piece_from_layer(self.get_layer(x1, y1))
         moves = Board.moves_from_piece(piece)(x1, y1, self)
         return torch.any(torch.all(moves == target, dim=1))

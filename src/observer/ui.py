@@ -15,16 +15,14 @@ logger: logging.Logger = logging.getLogger(__name__)
 class UIObserver(BaseObserver):
     """Game UI for debugging and later play."""
 
-    def __init__(
-        self, workers: tuple[int, ...], game: Game, agents: tuple[BaseAgent, BaseAgent]
-    ) -> None:
+    def __init__(self, game: Game, agents: tuple[BaseAgent, BaseAgent]) -> None:
         """Initialize window."""
-        super().__init__(workers, game, agents)
+        super().__init__(game, agents)
         self.root = tk.Tk()
         self.root.title("Katruji / Zilatran Chess")
 
         self.selected_positions: list[tuple[int, int]] = []
-        self.possible_moves: torch.IntTensor = torch.empty(0, 2)
+        self.possible_moves: torch.Tensor = torch.empty(0, 2)
 
         # --- Menu Bar ---
         self.menubar = Menu(self.root)
@@ -188,7 +186,7 @@ class UIObserver(BaseObserver):
                 current_state[Board.layer_from_piece(piece)]
                 + current_state[Board.layer_from_piece(piece) + Board.num_pieces]
             )
-            positions: tuple[torch.Tensor, torch.Tensor] = torch.where(piece_layer)
+            positions: tuple[torch.Tensor, ...] = torch.where(piece_layer)
             xs: torch.Tensor = (positions[0] + 0.5) * self.CELL_SIZE
             ys: torch.Tensor = (positions[1] + 0.5) * self.CELL_SIZE
             for x, y in zip(xs, ys, strict=False):

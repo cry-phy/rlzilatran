@@ -1,8 +1,7 @@
-from agents.human import HumanAgent
 import logging
 import sys
 
-from observer.ui import UIObserver
+from mpi.handler import MPIHandler
 
 
 def setup_logging(rank: int = 0):
@@ -32,14 +31,11 @@ def setup_logging(rank: int = 0):
 
 def main():
     """Run central loop."""
-    rank = 0
-    setup_logging(rank)
-
     logger = logging.getLogger(__name__)
     logger.info("Starting application")
 
-    observer = UIObserver.any_vs_any(HumanAgent, HumanAgent, (0, 1))
-    observer.run()
+    process = MPIHandler().get_process()
+    process.run()
 
 
 if __name__ == "__main__":

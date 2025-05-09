@@ -26,17 +26,16 @@ class BaseAgent:
     """
 
     clickable: bool = False
+    mpi: MPIHandler = MPIHandler()
 
-    def __init__(self, game: Game, workers: tuple[int, ...]) -> None:
+    def __init__(self, game: Game) -> None:
         """Initialize agent with ownership over threads."""
         self._game = game
-        self._workers = workers
         self._root = None
         self._player = game.state.player
         self._move_ready = False
         self._move_tensor = torch.zeros(Board.move_tensor_shape)
         self._value = 0
-        self.mpi = MPIHandler()
 
     @property
     def player(self):

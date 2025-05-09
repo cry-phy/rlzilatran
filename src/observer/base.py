@@ -11,14 +11,10 @@ class BaseObserver:
     Not intended for direct use.
     """
 
-    def __init__(
-        self, workers: tuple[int, ...], game: Game, agents: tuple[BaseAgent, BaseAgent]
-    ) -> None:
+    def __init__(self, game: Game, agents: tuple[BaseAgent, BaseAgent]) -> None:
         """Initialize Observer with ownership over threads."""
-        self._workers: tuple[int, ...] = workers
-        self._root = None
-        self._game = game
-        self._agents = agents
+        self.game = game
+        self.agents = agents
         self._game_over = False
         self._state_data: list[torch.Tensor] = []
         self._value_data: list[float] = []
@@ -27,46 +23,22 @@ class BaseObserver:
         self.mpi = MPIHandler()
 
     @classmethod
-    def self_play(
-        cls, agent_cls: type[BaseAgent], workers: tuple[int, ...]
-    ) -> "BaseObserver":
-        """Generate a game between two of the same agents."""
-        game = Game.new_game()
-        agent1 = agent_cls(game, workers)
-        agent2 = agent_cls(game, workers)
-        agent1.player = True
-        agent1._clear_tool()
-        agent2.player = agent1.player
-        agent2._clear_tool()
-        return cls(workers, game, (agent1, agent2))
-
-    @classmethod
     def any_vs_any(
         cls,
+        game: Game,
         agent_cls1: type[BaseAgent],
         agent_cls2: type[BaseAgent],
-        workers: tuple[int, ...],
     ) -> "BaseObserver":
         """Pit two agents against each other."""
-        game = Game.new_game()
-        agent1 = agent_cls1(game, workers)
-        agent2 = agent_cls2(game, workers)
+        agent1 = agent_cls1(game)
+        agent2 = agent_cls2(game)
         agent1.player = True
         agent2.player = agent1.player
-        return cls(workers, game, (agent1, agent2))
+        return cls(game, (agent1, agent2))
 
     def current_agent(self) -> BaseAgent:
         """Return the currently at play agent."""
-        return self._agents[self._game.state.player]
-
-    def move(self) -> bool:
-        """Make a single move of the current Agent."""
-        raise NotImplementedError
-
-    def generate_episode(self) -> None:
-        """Generate an entire episode."""
-        while not self._game_over:
-            self.game_over = self.move()
+        return self.agents[self.game.state.player]
 
     def add_data(
         self,
@@ -97,7 +69,3 @@ class BaseObserver:
         values = torch.Tensor(self._value_data)
         moves = torch.stack(self._move_data)
         self.mpi.send_episode(states, values, moves)
-
-    def run(self) -> None:
-        """Run indefinitely."""
-        raise NotImplementedError

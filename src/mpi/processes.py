@@ -1,6 +1,7 @@
-from agents.human import HumanAgent
+from agents.base import BaseAgent
+from game.game import Game
 from mpi.handler import MPIHandler
-from observer.ui import UIObserver
+from observer.ui import BaseObserver
 
 
 class MPIProcess:
@@ -14,6 +15,10 @@ class MPIProcess:
 
     def run(self) -> None:
         """Run the Process."""
+        raise NotImplementedError
+
+    def main_step(self) -> None:
+        """Run a single step in the process loop."""
         raise NotImplementedError
 
 
@@ -54,24 +59,32 @@ class InferenceProcess(MPIProcess):
 class AgentProcess(MPIProcess):
     """Initialize Process acting only as Observer."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        game: Game,
+        agent_cls1: type[BaseAgent],
+        agent_cls2: type[BaseAgent],
+    ) -> None:
         """Set Agent environment and recieve agents and Game."""
         super().__init__()
         self.observer = None
-
-        # Observer bcast the Agents on ocomm
-        self.game, self.agents = self.mpi.bcast_observer_agents(self.observer)
+        self.game = game
+        self.agents: tuple[BaseAgent, BaseAgent] = (agent_cls1(game), agent_cls2(game))
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
         super().run()
         while not self.game.game_over():
-            current_agent = self.agents[self.game.state.player]
-            current_agent.generate_move_tensor()
-            _ = current_agent.reduce_move_tensors()
-            move = None
-            bcast_move = current_agent.bcast_move(move)
-            current_agent.make_move(*bcast_move)
+            self.main_step()
+
+    def main_step(self) -> None:
+        """Agent Control Flow."""
+        current_agent = self.agents[self.game.state.player]
+        current_agent.generate_move_tensor()
+        _ = current_agent.reduce_move_tensors()
+        move = None
+        bcast_move = current_agent.bcast_move(move)
+        current_agent.make_move(*bcast_move)
 
 
 class ObserverProcess(MPIProcess):
@@ -80,32 +93,46 @@ class ObserverProcess(MPIProcess):
     This is part of the ocomm and therefore also runs Agent search.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        game: Game,
+        agent_cls1: type[BaseAgent],
+        agent_cls2: type[BaseAgent],
+    ) -> None:
         """Set up observer and distribute game anda agents."""
         super().__init__()
-        self.observer = UIObserver.any_vs_any(HumanAgent, HumanAgent, (0, 1))
-
-        # Observer bcast the Agents on ocomm
-        self.game, self.agents = self.mpi.bcast_observer_agents(self.observer)
+        self.obs = BaseObserver.any_vs_any(game, agent_cls1, agent_cls2)
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
         super().run()
-        while not self.game.game_over():
-            state_tensor = self.game.state_tensor()
-            current_agent = self.agents[self.game.state.player]
-            current_agent.generate_move_tensor()
-            sum_move_tensor = current_agent.reduce_move_tensors()
-            sum_value = current_agent.reduce_values()
-            move_tensor = sum_move_tensor / self.mpi._osize
-            if sum_value is None:
-                raise ValueError("Value should not be None on OBSERVER_ORANK")
-            else:
-                value = sum_value / self.mpi._osize
-            move = current_agent.generate_move(move_tensor)
-            bcast_move = current_agent.bcast_move(move)
-            current_agent.make_move(*bcast_move)
-            self.observer.add_data(state_tensor, value, move_tensor)
-            if self.observer.batch_ready():
-                self.observer.send_epsiode()
-                self.observer.reset_data()
+        while not self.obs.game.game_over():
+            self.main_step()
+            self._send_episode()
+
+    def main_step(self) -> None:
+        """Observer rank Control Flow."""
+        state_tensor = self.obs.game.state_tensor
+        current_agent = self.obs.agents[self.obs.game.state.player]
+        current_agent.generate_move_tensor()
+        sum_move_tensor = current_agent.reduce_move_tensors()
+        sum_value = current_agent.reduce_values()
+        move_tensor = sum_move_tensor / self.mpi._osize
+        if sum_value is None:
+            raise ValueError("Value should not be None on OBSERVER_ORANK")
+        else:
+            value = sum_value / self.mpi._osize
+        move = current_agent.generate_move(move_tensor)
+        bcast_move = current_agent.bcast_move(move)
+        current_agent.make_move(*bcast_move)
+        self.obs.add_data(state_tensor, value, move_tensor)
+
+    def _send_episode(self) -> None:
+        """Send episode batch to Training."""
+        if self.obs.batch_ready():
+            self.obs.send_epsiode()
+            self.obs.reset_data()
+
+
+class UIObserverProcess(ObserverProcess):
+    """Observer process able to handle User Interface."""
