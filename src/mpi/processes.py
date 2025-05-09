@@ -1,7 +1,38 @@
-from agents.base import BaseAgent
+import logging
+from config import get_config
 from game.game import Game
 from mpi.handler import MPIHandler
 from observer.ui import BaseObserver
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agents.base import BaseAgent
+
+logger: logging.Logger = logging.getLogger(__name__)
+
+
+def get_process() -> "MPIProcess":
+    """Return the MPIProcess that is supposed to be run on this Rank."""
+    handler = MPIHandler()
+    config = get_config()
+    if handler._wrank == handler.TRAINING_WRANK:
+        process = TrainingProcess()
+    elif handler._nrank == handler.INFERENCE_NRANK:
+        process = InferenceProcess()
+    elif handler._orank == handler.OBSERVER_ORANK:
+        process = ObserverProcess(
+            config.board.init_board(),
+            config.obs.agent_cls1,
+            config.obs.agent_cls2,
+        )
+    else:
+        process = AgentProcess(
+            config.board.init_board(),
+            config.obs.agent_cls1,
+            config.obs.agent_cls2,
+        )
+    logger.info("initialized %s.", process.__class__.__name__)
+    return process
 
 
 class MPIProcess:
@@ -69,7 +100,10 @@ class AgentProcess(MPIProcess):
         super().__init__()
         self.observer = None
         self.game = game
-        self.agents: tuple[BaseAgent, BaseAgent] = (agent_cls1(game), agent_cls2(game))
+        self.agents: tuple[BaseAgent, BaseAgent] = (
+            agent_cls1(game),
+            agent_cls2(game),
+        )
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""

@@ -2,6 +2,7 @@ import logging
 import sys
 
 from mpi.handler import MPIHandler
+from mpi.processes import get_process
 
 
 def setup_logging(rank: int = 0):
@@ -34,7 +35,9 @@ def main():
     logger = logging.getLogger(__name__)
     logger.info("Starting application")
 
-    process = MPIHandler().get_process()
+    MPIHandler()
+
+    process = get_process()
     process.run()
 
 
