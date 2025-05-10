@@ -10,6 +10,8 @@ import tkinter as tk
 import functools
 import inspect
 
+from mpi.handler import MPIHandler
+
 logger: logging.Logger = logging.getLogger(__name__)
 
 
@@ -78,12 +80,13 @@ class HumanAgent(BaseAgent):
 
     def __new__(cls, game: Game) -> "HumanAgent | BaseAgent":
         """Decide beween Human Agent and dummy agent."""
-        if cls.mpi._orank == cls.mpi.OBSERVER_ORANK:
+        mpi = MPIHandler()
+        if mpi._orank == mpi.OBSERVER_ORANK:
             return DummyAgent(game)
         else:
-            return cls(game)
+            return super().__new__(cls)
 
-    def __init__(self, game: Game, workers: tuple[int, ...]) -> None:
+    def __init__(self, game: Game) -> None:
         """Initialize Human interactible agent."""
         super().__init__(game)
         self.selected: Tool = Tool.MOVE

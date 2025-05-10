@@ -5,6 +5,10 @@ from game.utils import Board
 from mpi.handler import MPIHandler
 import torch
 
+import importlib
+import pkgutil
+import agents
+
 
 class Tool(Enum):
     """Enum for handling selected tool."""
@@ -26,10 +30,10 @@ class BaseAgent:
     """
 
     clickable: bool = False
-    mpi: MPIHandler = MPIHandler()
 
     def __init__(self, game: Game) -> None:
         """Initialize agent with ownership over threads."""
+        self.mpi: MPIHandler = MPIHandler()
         self._game = game
         self._root = None
         self._player = game.state.player
@@ -128,3 +132,31 @@ class BaseAgent:
     def possible_moves(self, x: int, y: int) -> list[tuple[int, int]]:
         """Get currently propable moves."""
         raise NotImplementedError
+
+
+def __import_all_modules(package):
+    """Import all submodules in certain module."""
+    for _, module_name, _ in pkgutil.iter_modules(
+        package.__path__, package.__name__ + "."
+    ):
+        importlib.import_module(module_name)
+
+
+def __get_all_subclasses(base_class):
+    """Glob all subclasses of a base class in the namespace."""
+    subclasses = set()
+
+    def recurse(cls):
+        for subclass in cls.__subclasses__():
+            subclasses.add(subclass)
+            recurse(subclass)
+
+    recurse(base_class)
+    return subclasses
+
+
+def agent_class_dict() -> dict[str, type[BaseAgent]]:
+    """Build full dictionary of agent classes."""
+    __import_all_modules(agents)
+    subclasses = __get_all_subclasses(BaseAgent)
+    return {cls.__name__: cls for cls in subclasses}

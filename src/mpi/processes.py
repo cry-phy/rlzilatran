@@ -3,33 +3,38 @@ from config import get_config
 from game.game import Game
 from mpi.handler import MPIHandler
 from observer.ui import BaseObserver
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from agents.base import BaseAgent
+from agents.base import BaseAgent
 
 logger: logging.Logger = logging.getLogger(__name__)
 
 
+class ProcessError(BaseException):
+    """Exeption handling errors with processes."""
+
+
 def get_process() -> "MPIProcess":
     """Return the MPIProcess that is supposed to be run on this Rank."""
+    logger.debug("Getting processes.")
     handler = MPIHandler()
     config = get_config()
     if handler._wrank == handler.TRAINING_WRANK:
         process = TrainingProcess()
     elif handler._nrank == handler.INFERENCE_NRANK:
         process = InferenceProcess()
-    elif handler._orank == handler.OBSERVER_ORANK:
+    game: Game = Game.new_game()
+    agent_cls1: type[BaseAgent] = config.agent_class_dict[config.obs.agent1]
+    agent_cls2: type[BaseAgent] = config.agent_class_dict[config.obs.agent2]
+    if handler._orank == handler.OBSERVER_ORANK:
         process = ObserverProcess(
-            config.board.init_board(),
-            config.obs.agent_cls1,
-            config.obs.agent_cls2,
+            game=game,
+            agent_cls1=agent_cls1,
+            agent_cls2=agent_cls2,
         )
     else:
         process = AgentProcess(
-            config.board.init_board(),
-            config.obs.agent_cls1,
-            config.obs.agent_cls2,
+            game=game,
+            agent_cls1=agent_cls1,
+            agent_cls2=agent_cls2,
         )
     logger.info("initialized %s.", process.__class__.__name__)
     return process
@@ -42,7 +47,12 @@ class MPIProcess:
     an Instance of the appropriate MPIProcess, which only has to be run after.
     """
 
-    mpi: MPIHandler = MPIHandler()
+    def __init__(self) -> None:
+        """Initialize MPI handler here.
+
+        doing it in the class block provides some issues at import time.
+        """
+        self.mpi = MPIHandler()
 
     def run(self) -> None:
         """Run the Process."""
@@ -68,6 +78,10 @@ class TrainingProcess(MPIProcess):
     #           isend notify new weights
     #       ibcast new weights
 
+    def run(self) -> None:
+        """Loop the control flow indefenitely."""
+        ...
+
 
 class InferenceProcess(MPIProcess):
     """Initialize process running Inference of the CNN."""
@@ -85,6 +99,10 @@ class InferenceProcess(MPIProcess):
     #       Inference on DataLoader
     #       for value batch in infered data:
     #           isend value batch
+
+    def run(self) -> None:
+        """Loop the control flow indefenitely."""
+        ...
 
 
 class AgentProcess(MPIProcess):
@@ -136,10 +154,13 @@ class ObserverProcess(MPIProcess):
         """Set up observer and distribute game anda agents."""
         super().__init__()
         self.obs = BaseObserver.any_vs_any(game, agent_cls1, agent_cls2)
+        if self.mpi._osize is not None:
+            self.osize = self.mpi._osize
+        else:
+            raise ProcessError("Observer on bad rank.")
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
-        super().run()
         while not self.obs.game.game_over():
             self.main_step()
             self._send_episode()
@@ -151,11 +172,11 @@ class ObserverProcess(MPIProcess):
         current_agent.generate_move_tensor()
         sum_move_tensor = current_agent.reduce_move_tensors()
         sum_value = current_agent.reduce_values()
-        move_tensor = sum_move_tensor / self.mpi._osize
+        move_tensor = sum_move_tensor / self.osize
         if sum_value is None:
             raise ValueError("Value should not be None on OBSERVER_ORANK")
         else:
-            value = sum_value / self.mpi._osize
+            value = sum_value / self.osize
         move = current_agent.generate_move(move_tensor)
         bcast_move = current_agent.bcast_move(move)
         current_agent.make_move(*bcast_move)

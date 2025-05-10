@@ -4,5 +4,5 @@ INFERENCE_NRANK = 0
 OBSERVER_ORANK = 0
 
 [obs]
-agent_cls1 = "Human"
-agent_cls2 = "Human"
+agent1 = "HumanAgent"
+agent2 = "HumanAgent"
