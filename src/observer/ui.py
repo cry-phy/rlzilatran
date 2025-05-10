@@ -3,6 +3,7 @@ from agents.base import BaseAgent
 from game.game import Game
 from game.state import State
 from game.utils import Board
+from mpi.handler import gracefull_error
 from observer.base import BaseObserver
 from agents.human import HumanAgent, Tool
 import tkinter as tk
@@ -143,10 +144,10 @@ class UIObserver(BaseObserver):
             return
         real_w, real_h = w * 0.96, h * 0.96
         self.CELL_SIZE = int(real_h / self.ROWS)
-        if isinstance(self._agents[0], HumanAgent):
-            self._agents[0]._CELL_SIZE = self.CELL_SIZE
-        if isinstance(self._agents[1], HumanAgent):
-            self._agents[1]._CELL_SIZE = self.CELL_SIZE
+        if isinstance(self.agents[0], HumanAgent):
+            self.agents[0]._CELL_SIZE = self.CELL_SIZE
+        if isinstance(self.agents[1], HumanAgent):
+            self.agents[1]._CELL_SIZE = self.CELL_SIZE
         self.FONT_SIZE = int(15 * self.CELL_SIZE / 80)
         self.SMALL_FONT = int(2 * self.FONT_SIZE / 3)
         logger.debug(
@@ -218,14 +219,12 @@ class UIObserver(BaseObserver):
         print(self.selected_positions)
         if self.selected_positions:
             for position in self.selected_positions:
-                print(position)
                 self.canvas.create_rectangle(
                     *self._get_cell_boundaries(*position),
                     outline="black",
                     fill="lightblue",
                 )
                 moves = self.current_agent().possible_moves(*position)
-                print(moves)
                 for move in moves:
                     self.canvas.create_rectangle(
                         *self._get_cell_boundaries(int(move[0]), int(move[1])),
@@ -294,32 +293,4 @@ class UIObserver(BaseObserver):
 
     def wait(self, func: Callable) -> None:
         """Wait for refresh."""
-        self.root.after(self.WAIT_TIME, func)
-
-    # def move(self) -> None:
-    #     """Make agent make a move."""
-    #     agent = self.current_agent()
-    #     x1, y1, x2, y2 = agent.generate_move()
-    #     agent.make_move(x1, y1, x2, y2)
-    #     self.redraw_board()
-
-    # def _generate_steps(self) -> None:
-    #     """Recursively do steps."""
-    #     agent = self.current_agent()
-    #     if agent.clickable:
-    #         self.pre_clickable_input()
-    #         if agent.move_ready:
-    #             self.move()
-    #             if not self.game.game_over():
-    #                 self.wait()
-    #             else:
-    #                 logger.debug("Finished game.")
-    #         else:
-    #             self.wait()
-    #     else:
-    #         self.move()
-
-    # def run(self) -> None:
-    #     """Execute main loop."""
-    #     self.wait()
-    #     self.root.mainloop()
+        self.root.after(self.WAIT_TIME, gracefull_error(func))

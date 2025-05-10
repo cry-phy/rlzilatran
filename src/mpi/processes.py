@@ -1,14 +1,16 @@
 import logging
+
+
 from config import get_config
 from game.game import Game
-from mpi.handler import MPIHandler
+from mpi.handler import MPIHandler, gracefull_error
 from observer.ui import BaseObserver, UIObserver
 from agents.base import BaseAgent
 
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-class ProcessError(BaseException):
+class ProcessError(Exception):
     """Exeption handling errors with processes."""
 
 
@@ -64,8 +66,10 @@ class MPIProcess:
 
     def run(self) -> None:
         """Run the Process."""
-        raise NotImplementedError
+        while True:
+            self.main_step()
 
+    @gracefull_error
     def main_step(self) -> None:
         """Run a single step in the process loop."""
         raise NotImplementedError
@@ -86,8 +90,9 @@ class TrainingProcess(MPIProcess):
     #           isend notify new weights
     #       ibcast new weights
 
-    def run(self) -> None:
-        """Loop the control flow indefenitely."""
+    @gracefull_error
+    def main_step(self) -> None:
+        """Run a single step in the process loop."""
         ...
 
 
@@ -108,8 +113,9 @@ class InferenceProcess(MPIProcess):
     #       for value batch in infered data:
     #           isend value batch
 
-    def run(self) -> None:
-        """Loop the control flow indefenitely."""
+    @gracefull_error
+    def main_step(self) -> None:
+        """Run a single step in the process loop."""
         ...
 
 
@@ -136,6 +142,7 @@ class AgentProcess(MPIProcess):
         while not self.game.game_over():
             self.main_step()
 
+    @gracefull_error
     def main_step(self) -> None:
         """Agent Control Flow."""
         current_agent = self.agents[self.game.state.player]
@@ -172,6 +179,7 @@ class ObserverProcess(MPIProcess):
             self.main_step()
             self._send_episode()
 
+    @gracefull_error
     def main_step(self) -> None:
         """Observer rank Control Flow."""
         state_tensor = self.obs.game.state_tensor
@@ -189,6 +197,7 @@ class ObserverProcess(MPIProcess):
         current_agent.make_move(*bcast_move)
         self.obs.add_data(state_tensor, value, move_tensor)
 
+    @gracefull_error
     def _send_episode(self) -> None:
         """Send episode batch to Training."""
         if self.obs.batch_ready():
@@ -197,7 +206,10 @@ class ObserverProcess(MPIProcess):
 
 
 class UIObserverProcess(MPIProcess):
-    """Observer process able to handle User Interface."""
+    """Observer process able to handle User Interface.
+
+    !!! Do not run on Cluster since main loop is not secured against crashes.
+    """
 
     def __init__(
         self,
@@ -215,17 +227,10 @@ class UIObserverProcess(MPIProcess):
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
-        self.recursive_step()
+        self.main_step()
         self.obs.root.mainloop()
 
-    def recursive_step(self) -> None:
-        """Bundle all substeps into one then run wait rrecursively."""
-        self.main_step()
-        if not self.obs.game.game_over():
-            self.obs.wait(self.recursive_step)
-        else:
-            logger.info("Game over.")
-
+    @gracefull_error
     def main_step(self) -> None:
         """Observer rank Control Flow."""
         state_tensor = self.obs.game.state_tensor
@@ -250,3 +255,7 @@ class UIObserverProcess(MPIProcess):
 
             if current_agent.clickable:
                 self.obs.post_clickable_input()
+        if not self.obs.game.game_over():
+            self.obs.wait(self.main_step)
+        else:
+            logger.info("Game over.")

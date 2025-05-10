@@ -1,5 +1,7 @@
 from enum import IntEnum, auto
+from functools import wraps
 import logging
+import sys
 
 from dynaconf import Dynaconf
 from game.utils import Board
@@ -13,6 +15,7 @@ logger = logging.getLogger(__name__)
 class Tag(IntEnum):
     """Make tags easier to understand."""
 
+    EXIT = auto()
     EPISODE_STATES = auto()
     EPISODE_VALUES = auto()
     NOTIFY_WEIGHTS = auto()
@@ -151,6 +154,30 @@ class MPIHandler:
                 f"Started MPI with wcomm with {self._wsize} processes, inference on {self.inference_wranks}"
             )
         self._init = True
+
+    def send_exit(self) -> list[MPI.Request]:
+        """Send exit message to all ranks."""
+        requests: list[MPI.Request] = []
+        empty_msg = np.empty(0, dtype="b")
+        for target in range(self._wsize):
+            req: MPI.Request = self.wcomm.Isend(
+                [empty_msg, MPI.BYTE], target, int(Tag.EXIT)
+            )
+            requests.append(req)
+        return requests
+
+    def probe_exit(self) -> bool:
+        """Check if an exit message is sent."""
+        return self.wcomm.Iprobe(MPI.ANY_SOURCE, int(Tag.EXIT))
+
+    def recv_exit(self) -> None:
+        """Recieve an exit message."""
+        empty_msg = np.empty(0, dtype="b")
+        self.wcomm.Recv([empty_msg, MPI.BYTE], MPI.ANY_SOURCE, int(Tag.EXIT))
+
+    def finalize(self) -> None:
+        """Gracefull finalize MPI Environment."""
+        MPI.Finalize()
 
     # Send Episode Data from Observer to Training
     def send_episode(
@@ -327,3 +354,38 @@ class MPIHandler:
             torch.from_numpy(message["values"]),
             torch.from_numpy(message["move_tensors"]),
         )
+
+
+def gracefull_error(func):
+    """Wrap enabling MPI shutdown on Exception.
+
+    Handles errors inside the wrapped function gracefully.
+    I. e. Sends termination to all Ranks to finalize MPI.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        mpi = MPIHandler()
+        try:
+            if mpi.probe_exit():
+                mpi.recv_exit()
+                logger.info("Different Rank observed exception. Finalizing.")
+                mpi.finalize()
+                sys.exit()
+            value = func(*args, **kwargs)
+        except Exception as e:
+            logger.info("In function %s: \n %s", func.__name__, e)
+            value = None
+            requests = mpi.send_exit()
+            mpi.recv_exit()
+            while requests:
+                to_remove: list[MPI.Request] = []
+                for req in requests:
+                    if req.Get_status():
+                        to_remove.append(req)
+                [requests.remove(req) for req in to_remove]
+            mpi.finalize()
+            sys.exit()
+        return value
+
+    return wrapper

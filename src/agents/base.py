@@ -2,7 +2,7 @@ from tkinter import Event
 from game.game import Game
 from enum import Enum, auto
 from game.utils import Board
-from mpi.handler import MPIHandler
+from mpi.handler import MPIHandler, gracefull_error
 import torch
 import tkinter as tk
 
@@ -69,14 +69,17 @@ class BaseAgent:
         """Move ready flag."""
         return self._move_ready
 
+    @gracefull_error
     def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
         """Generate a move for the current game."""
         raise NotImplementedError
 
+    @gracefull_error
     def generate_move_tensor(self) -> None:
         """Generate move tensor and value."""
         raise NotImplementedError
 
+    @gracefull_error
     def get_state_value(self) -> float:
         """Get evaluation of current State."""
         raise NotImplementedError
@@ -106,11 +109,13 @@ class BaseAgent:
 
     # -- Functions for GUI --
     @property
+    @gracefull_error
     def cell_size(self):
         """The CELL_SIZE property."""
         raise NotImplementedError
 
     @cell_size.setter
+    @gracefull_error
     def cell_size(self, value):
         raise NotImplementedError
 
@@ -130,10 +135,12 @@ class BaseAgent:
         """Clear tool selection."""
         pass
 
+    @gracefull_error
     def selected_positions(self) -> list[tuple[int, int]]:
         """Get currently propable moves."""
         raise NotImplementedError
 
+    @gracefull_error
     def possible_moves(self, x: int, y: int) -> list[tuple[int, int]]:
         """Get currently propable moves."""
         raise NotImplementedError
