@@ -1,3 +1,4 @@
+from typing import Callable
 from agents.base import BaseAgent
 from game.game import Game
 from game.state import State
@@ -14,6 +15,20 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 class UIObserver(BaseObserver):
     """Game UI for debugging and later play."""
+
+    @classmethod
+    def any_vs_any(
+        cls,
+        game: Game,
+        agent_cls1: type[BaseAgent],
+        agent_cls2: type[BaseAgent],
+    ) -> "UIObserver":
+        """Pit two agents against each other."""
+        agent1 = agent_cls1(game)
+        agent2 = agent_cls2(game)
+        agent1.player = True
+        agent2.player = agent1.player
+        return cls(game, (agent1, agent2))
 
     def __init__(self, game: Game, agents: tuple[BaseAgent, BaseAgent]) -> None:
         """Initialize window."""
@@ -180,7 +195,7 @@ class UIObserver(BaseObserver):
 
     def draw_pieces(self) -> None:
         """Draw pieces."""
-        current_state = self._game.state.state
+        current_state = self.game.state.state
         for piece in Board.pieces:
             piece_layer = (
                 current_state[Board.layer_from_piece(piece)]
@@ -225,7 +240,7 @@ class UIObserver(BaseObserver):
             filetypes=[("State files", "*.json"), ("All Files", "*.*")],
         )
         if path:
-            self._game.save(path)
+            self.game.save(path)
             messagebox.showinfo("Save", f"Game saved to {path}")
 
     def on_load(self) -> None:
@@ -235,17 +250,17 @@ class UIObserver(BaseObserver):
             filetypes=[("State files", "*.json"), ("All Files", "*.*")],
         )
         if path:
-            self._game.load(path)
+            self.game.load(path)
             self.redraw_board()
 
     def new_empty(self) -> None:
         """Generate empty board."""
-        self._game.state = State.empty()
+        self.game.state = State.empty()
         self.redraw_board()
 
     def on_restart(self) -> None:
         """Reset game to initial."""
-        self._game.reset()
+        self.game.reset()
         self.redraw_board()
 
     def on_click(self, event: Event) -> None:
@@ -277,38 +292,34 @@ class UIObserver(BaseObserver):
         """Remove interaction."""
         self.canvas.unbind("<Button-1>")
 
-    def generate_episode(self) -> None:
-        """Generate Episode. Overrides BaseObserver."""
-        self._generate_steps()
-
-    def wait(self) -> None:
+    def wait(self, func: Callable) -> None:
         """Wait for refresh."""
-        self.root.after(self.WAIT_TIME, self._generate_steps)
+        self.root.after(self.WAIT_TIME, func)
 
-    def move(self) -> None:
-        """Make agent make a move."""
-        agent = self.current_agent()
-        x1, y1, x2, y2 = agent.generate_move()
-        agent.make_move(x1, y1, x2, y2)
-        self.redraw_board()
+    # def move(self) -> None:
+    #     """Make agent make a move."""
+    #     agent = self.current_agent()
+    #     x1, y1, x2, y2 = agent.generate_move()
+    #     agent.make_move(x1, y1, x2, y2)
+    #     self.redraw_board()
 
-    def _generate_steps(self) -> None:
-        """Recursively do steps."""
-        agent = self.current_agent()
-        if agent.clickable:
-            self.pre_clickable_input()
-            if agent.move_ready:
-                self.move()
-                if not self._game.game_over():
-                    self.wait()
-                else:
-                    logger.debug("Finished game.")
-            else:
-                self.wait()
-        else:
-            self.move()
+    # def _generate_steps(self) -> None:
+    #     """Recursively do steps."""
+    #     agent = self.current_agent()
+    #     if agent.clickable:
+    #         self.pre_clickable_input()
+    #         if agent.move_ready:
+    #             self.move()
+    #             if not self.game.game_over():
+    #                 self.wait()
+    #             else:
+    #                 logger.debug("Finished game.")
+    #         else:
+    #             self.wait()
+    #     else:
+    #         self.move()
 
-    def run(self) -> None:
-        """Execute main loop."""
-        self.wait()
-        self.root.mainloop()
+    # def run(self) -> None:
+    #     """Execute main loop."""
+    #     self.wait()
+    #     self.root.mainloop()

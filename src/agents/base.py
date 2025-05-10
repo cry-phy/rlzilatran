@@ -4,6 +4,7 @@ from enum import Enum, auto
 from game.utils import Board
 from mpi.handler import MPIHandler
 import torch
+import tkinter as tk
 
 import importlib
 import pkgutil
@@ -13,6 +14,7 @@ import agents
 class Tool(Enum):
     """Enum for handling selected tool."""
 
+    NONE = auto()
     MOVE = auto()
     INMOVE = auto()
     ADDP = auto()
@@ -41,6 +43,9 @@ class BaseAgent:
         self._move_tensor = torch.zeros(Board.move_tensor_shape)
         self._value = 0
 
+        self.selected: Tool = Tool.MOVE
+        self._selected_var: tk.IntVar | None = None
+
     @property
     def player(self):
         """The player property."""
@@ -53,11 +58,11 @@ class BaseAgent:
     @property
     def selected_var(self):
         """The selected_var property."""
-        raise NotImplementedError
+        return self._selected_var
 
     @selected_var.setter
     def selected_var(self, value):
-        raise NotImplementedError
+        self._selected_var = value
 
     @property
     def move_ready(self) -> bool:

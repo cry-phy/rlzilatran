@@ -6,7 +6,6 @@ from game.utils import Board
 from mpi4py import MPI
 import torch
 import numpy as np
-import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -78,11 +77,6 @@ class MPIHandler:
         """
         # Guard against multiple initializeations due to MPIHandler calls in class blocks.
         if self._init:
-            warnings.warn(
-                "Attempting to create MPIHandler at import time. This might be dangerous.",
-                UserWarning,
-                stacklevel=2,
-            )
             return
 
         if config is not None:

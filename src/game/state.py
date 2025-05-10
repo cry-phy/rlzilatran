@@ -334,22 +334,22 @@ class State:
     # -- Retrieve Channels --
     def player_channel(self) -> torch.Tensor:
         """Generate entire layer of player values."""
-        return torch.full(Board.board_size, int(self._player))
+        return torch.full(Board.board_size, int(self._player))[None, :, :]
 
     def captured_value_channel(self) -> torch.Tensor:
         """Generate entire layer of player values."""
         layer: torch.Tensor = torch.empty(Board.board_size)
         layer[:, : Board.y // 2] = self._captured_value[0]
         layer[:, Board.y // 2 :] = self._captured_value[1]
-        return layer
+        return layer[None, :, :]
 
     def since_capture_channel(self) -> torch.Tensor:
         """Generate entire layer of player values."""
-        return torch.full(Board.board_size, int(self._since_capture))
+        return torch.full(Board.board_size, int(self._since_capture))[None, :, :]
 
     def since_capture_call_channel(self) -> torch.Tensor:
         """Generate entire layer of player values."""
-        return torch.full(Board.board_size, int(self._since_capture_call))
+        return torch.full(Board.board_size, int(self._since_capture_call))[None, :, :]
 
     def get_additional_channels(self) -> list[torch.Tensor]:
         """Get list of additional channels."""

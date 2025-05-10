@@ -6,7 +6,6 @@ from game.game import Game
 import logging
 import torch
 from game.utils import Board
-import tkinter as tk
 import functools
 import inspect
 
@@ -89,8 +88,6 @@ class HumanAgent(BaseAgent):
     def __init__(self, game: Game) -> None:
         """Initialize Human interactible agent."""
         super().__init__(game)
-        self.selected: Tool = Tool.MOVE
-        self._selected_var: tk.IntVar | None = None
         self._selected_position: tuple[int, int] = (0, 0)
         self.tool_function_dict: dict[Tool, Callable[[int, int], None]] = {
             Tool.MOVE: self.tool_move,
@@ -112,15 +109,6 @@ class HumanAgent(BaseAgent):
     @cell_size.setter
     def cell_size(self, value):
         self._CELL_SIZE = value
-
-    @property
-    def selected_var(self):
-        """The selected_var property."""
-        return self._selected_var
-
-    @selected_var.setter
-    def selected_var(self, value):
-        self._selected_var = value
 
     def selected_positions(self) -> list[tuple[int, int]]:
         """Return selected positions. Overriding BaseAgent."""

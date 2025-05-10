@@ -2,7 +2,7 @@ import logging
 from config import get_config
 from game.game import Game
 from mpi.handler import MPIHandler
-from observer.ui import BaseObserver
+from observer.ui import BaseObserver, UIObserver
 from agents.base import BaseAgent
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -18,26 +18,31 @@ def get_process() -> "MPIProcess":
     handler = MPIHandler()
     config = get_config()
     if handler._wrank == handler.TRAINING_WRANK:
-        process = TrainingProcess()
+        return TrainingProcess()
     elif handler._nrank == handler.INFERENCE_NRANK:
-        process = InferenceProcess()
+        return InferenceProcess()
     game: Game = Game.new_game()
     agent_cls1: type[BaseAgent] = config.agent_class_dict[config.obs.agent1]
     agent_cls2: type[BaseAgent] = config.agent_class_dict[config.obs.agent2]
     if handler._orank == handler.OBSERVER_ORANK:
-        process = ObserverProcess(
-            game=game,
-            agent_cls1=agent_cls1,
-            agent_cls2=agent_cls2,
-        )
+        if config.obs.GUI:
+            return UIObserverProcess(
+                game=game,
+                agent_cls1=agent_cls1,
+                agent_cls2=agent_cls2,
+            )
+        else:
+            return ObserverProcess(
+                game=game,
+                agent_cls1=agent_cls1,
+                agent_cls2=agent_cls2,
+            )
     else:
-        process = AgentProcess(
+        return AgentProcess(
             game=game,
             agent_cls1=agent_cls1,
             agent_cls2=agent_cls2,
         )
-    logger.info("initialized %s.", process.__class__.__name__)
-    return process
 
 
 class MPIProcess:
@@ -53,6 +58,9 @@ class MPIProcess:
         doing it in the class block provides some issues at import time.
         """
         self.mpi = MPIHandler()
+        logger.debug(
+            "Initialized %s on rank %i", self.__class__.__name__, self.mpi._wrank
+        )
 
     def run(self) -> None:
         """Run the Process."""
@@ -125,7 +133,6 @@ class AgentProcess(MPIProcess):
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
-        super().run()
         while not self.game.game_over():
             self.main_step()
 
@@ -189,5 +196,57 @@ class ObserverProcess(MPIProcess):
             self.obs.reset_data()
 
 
-class UIObserverProcess(ObserverProcess):
+class UIObserverProcess(MPIProcess):
     """Observer process able to handle User Interface."""
+
+    def __init__(
+        self,
+        game: Game,
+        agent_cls1: type[BaseAgent],
+        agent_cls2: type[BaseAgent],
+    ) -> None:
+        """Set up observer and distribute game anda agents."""
+        super().__init__()
+        self.obs = UIObserver.any_vs_any(game, agent_cls1, agent_cls2)
+        if self.mpi._osize is not None:
+            self.osize = self.mpi._osize
+        else:
+            raise ProcessError("Observer on bad rank.")
+
+    def run(self) -> None:
+        """Loop the control flow indefenitely."""
+        self.recursive_step()
+        self.obs.root.mainloop()
+
+    def recursive_step(self) -> None:
+        """Bundle all substeps into one then run wait rrecursively."""
+        self.main_step()
+        if not self.obs.game.game_over():
+            self.obs.wait(self.recursive_step)
+        else:
+            logger.info("Game over.")
+
+    def main_step(self) -> None:
+        """Observer rank Control Flow."""
+        state_tensor = self.obs.game.state_tensor
+        current_agent: BaseAgent = self.obs.agents[self.obs.game.state.player]
+
+        if current_agent.clickable:
+            self.obs.pre_clickable_input()
+
+        if current_agent.move_ready:
+            current_agent.generate_move_tensor()
+            sum_move_tensor = current_agent.reduce_move_tensors()
+            sum_value = current_agent.reduce_values()
+            move_tensor = sum_move_tensor / self.osize
+            if sum_value is None:
+                raise ValueError("Value should not be None on OBSERVER_ORANK")
+            else:
+                value = sum_value / self.osize
+            move = current_agent.generate_move(move_tensor)
+            bcast_move = current_agent.bcast_move(move)
+            current_agent.make_move(*bcast_move)
+            self.obs.add_data(state_tensor, value, move_tensor)
+
+            if current_agent.clickable:
+                self.obs.post_clickable_input()

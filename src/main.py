@@ -39,12 +39,15 @@ def main():
     wrank = wcomm.Get_rank()
     setup_logging(wrank, logging.DEBUG)
     logger = logging.getLogger(__name__)
-    logger.info("Starting application.")
+    logger.info("Logging initialized.")
 
     config = get_config()
     MPIHandler(config)
+    logger.info("MPI initialized.")
 
     process = get_process()
+    logger.info("Processes initialized. Running ...")
+
     process.run()
 
 
