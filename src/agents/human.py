@@ -5,7 +5,7 @@ from agents.base import BaseAgent, Tool
 from game.game import Game
 import logging
 import torch
-from game.utils import Board
+from game.utils import Board, MoveFlag
 import functools
 import inspect
 
@@ -45,12 +45,14 @@ class DummyAgent(BaseAgent):
     Does not return any usefull data  but is able to act as a fully implemented Agent.
     """
 
-    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+    def generate_move(
+        self, move_tensor: torch.Tensor
+    ) -> tuple[int, int, int, int, int]:
         """Generate a move.
 
         The Human player bypasses the Move selection by only reading on the observer rank.
         """
-        return (-1, -1, -1, -1)
+        raise ValueError("Trying to generate move by DummyAgent.")
 
     def generate_move_tensor(self) -> None:
         """Generate empty move tensor and value.
@@ -111,6 +113,16 @@ class HumanAgent(BaseAgent):
     def cell_size(self, value):
         self._CELL_SIZE = value
 
+    @property
+    def move_flag(self) -> MoveFlag:
+        """The move_flag property."""
+        return self._move_flag
+
+    @move_flag.setter
+    def move_flag(self, value):
+        self._move_flag = value
+        self.prepare_move(0, 0)
+
     def selected_positions(self) -> list[tuple[int, int]]:
         """Return selected positions. Overriding BaseAgent."""
         if self._selected_position and self.selected == Tool.INMOVE:
@@ -139,7 +151,9 @@ class HumanAgent(BaseAgent):
         return super().handle_click(event)
 
     # -- MPI compatability --
-    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+    def generate_move(
+        self, move_tensor: torch.Tensor
+    ) -> tuple[int, int, int, int, int]:
         """Generate a move.
 
         The Human player bypasses the Move selection by only reading on the observer rank.
@@ -250,9 +264,22 @@ class HumanAgent(BaseAgent):
     # -- Make moves --
     def prepare_move(self, x: int, y: int) -> None:
         """Make move to piece."""
-        logger.debug("Setting move and readiness.")
-        self._move = (self._selected_position[0], self._selected_position[1], x, y)
-        self._move_ready = True
+        if self._game.state.check_flag(self.move_flag):
+            logger.debug("Setting move and readiness.")
+            self._move = (
+                self._selected_position[0],
+                self._selected_position[1],
+                x,
+                y,
+                int(self.move_flag),
+            )
+            self._move_ready = True
+        else:
+            logger.debug(
+                "Trying to apply flag %s in this is impossible.",
+                self.move_flag.__repr__,
+            )
+            self.move_flag = MoveFlag.STANDARD
 
     def place_piece(self, x: int, y: int) -> None:
         """Place piece according to current tool on square."""

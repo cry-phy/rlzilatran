@@ -2,6 +2,7 @@ from enum import IntEnum, auto
 from functools import wraps
 import logging
 import sys
+from time import time
 
 from dynaconf import Dynaconf
 from game.utils import Board
@@ -86,6 +87,7 @@ class MPIHandler:
             self.TRAINING_WRANK = config.mpi.TRAINING_WRANK
             self.INFERENCE_NRANK = config.mpi.INFERENCE_NRANK
             self.OBSERVER_ORANK = config.mpi.OBSERVER_ORANK
+            self.MPI_SHUTDOWN_WAIT = config.mpi.MPI_SHUTDOWN_WAIT
         else:
             raise ValueError(
                 "Config must be passed to the first time MPIHandler is created."
@@ -272,8 +274,8 @@ class MPIHandler:
 
     # -- Synchronize Observer and Agents
     def bcast_decided_move(
-        self, move: tuple[int, int, int, int] | None
-    ) -> tuple[int, int, int, int]:
+        self, move: tuple[int, int, int, int, int] | None
+    ) -> tuple[int, int, int, int, int]:
         """Broadcast new game state to all agents."""
         logger.debug("Broadcasting decided move.")
         if self._orank == self.OBSERVER_ORANK:
@@ -365,15 +367,14 @@ def send_gracefull_exit():
     mpi = MPIHandler()
     requests = mpi.send_exit()
     mpi.recv_exit()
-    while requests:
+    start_time = time()
+    while requests and time() - start_time <= mpi.MPI_SHUTDOWN_WAIT:
         to_remove: list[MPI.Request] = []
         for req in requests:
             if req.Get_status():
                 to_remove.append(req)
         [requests.remove(req) for req in to_remove]
-    mpi.finalize()
-    logger.debug("Finalized MPI on rank %i", mpi._wrank)
-    sys.exit(1)
+    mpi.wcomm.Abort(1)
 
 
 def handle_gracefull_exit():
@@ -381,8 +382,6 @@ def handle_gracefull_exit():
     mpi = MPIHandler()
     mpi.recv_exit()
     logger.info("Different Rank observed exception. Finalizing.")
-    mpi.finalize()
-    logger.debug("Finalized MPI on rank %i", mpi._wrank)
     sys.exit(1)
 
 

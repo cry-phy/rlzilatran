@@ -2,7 +2,7 @@ from typing import Callable
 from agents.base import BaseAgent
 from game.game import Game
 from game.state import State
-from game.utils import Board
+from game.utils import Board, MoveFlag
 from mpi.handler import gracefull_error
 from observer.base import BaseObserver
 from agents.human import HumanAgent, Tool
@@ -51,6 +51,21 @@ class UIObserver(BaseObserver):
         self.main_frame.grid(row=0, column=0, sticky="nsew")
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
+        self.main_frame.grid_rowconfigure(0, weight=1)
+        self.main_frame.grid_columnconfigure(0, weight=1)
+        self.main_frame.grid_columnconfigure(1, weight=0)
+
+        # --- Canvas for Board (in column 0) ---
+        self.canvas = tk.Canvas(self.main_frame, width=400, height=800, bg="white")
+        self.canvas.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+
+        self.side_panel = tk.Frame(self.main_frame)
+        self.side_panel.grid(row=0, column=1, sticky="ns", padx=10, pady=10)
+
+        self.side_panel.grid_rowconfigure(0, weight=1)
+        self.side_panel.grid_rowconfigure(1, weight=0)
+        self.side_panel.grid_rowconfigure(2, weight=1)
+        self.side_panel.grid_columnconfigure(0, weight=1)
 
         # --- Canvas for Board ---
         self.COLUMNS, self.ROWS = Board.board_size
@@ -59,6 +74,8 @@ class UIObserver(BaseObserver):
         self.SMALL_FONT: int = 10
         self.initial_resize_done = False
         self.WAIT_TIME = 100
+
+        self._side_panel()
 
         canvas_width = self.COLUMNS * self.CELL_SIZE
         canvas_height = self.ROWS * self.CELL_SIZE
@@ -100,6 +117,25 @@ class UIObserver(BaseObserver):
         filemenu.add_separator()
         filemenu.add_command(label="Quit", command=self.exit_mpi)
         self.menubar.add_cascade(label="File", menu=filemenu)
+
+    def _side_panel(self) -> None:
+        """Set up side panel."""
+        self.capture_var = tk.StringVar(value="Game not started.")
+        self.capture_label = tk.Label(
+            self.side_panel,
+            textvariable=self.capture_var,
+            justify="center",
+            font=(f"Helvetica {self.FONT_SIZE}"),
+        )
+        self.capture_label.grid(row=1, column=0, pady=(0, 1))
+
+        # --- Centered Button ---
+        self.extra_button = tk.Button(
+            self.side_panel,
+            text="Capture Call",
+            command=lambda: self.set_move_flag(MoveFlag.CAPTURE_CALL),
+        )
+        self.extra_button.grid(row=2, column=0)
 
     def _add_tool_menu(self) -> None:
         """Separate menubar logic."""
@@ -279,6 +315,12 @@ class UIObserver(BaseObserver):
         self.selected_positions = agent.selected_positions()
         self.redraw_board()
 
+    def update_values(self) -> None:
+        """Update common values."""
+        self.capture_var.set(
+            f"{self.game.state.captured_value[0]} {self.game.state.captured_value[0]}"
+        )
+
     def draw_board(self) -> None:
         """Wrap common draw functions."""
         self.draw_grid()
@@ -288,8 +330,14 @@ class UIObserver(BaseObserver):
 
     def redraw_board(self) -> None:
         """Redraw game state."""
+        self.update_values()
         self.canvas.delete("all")
         self.draw_board()
+
+    def set_move_flag(self, flag: MoveFlag) -> None:
+        """Set a certain game flag for the current agent."""
+        agent = self.current_agent()
+        agent.move_flag = flag
 
     def pre_clickable_input(self):
         """Let human select move."""

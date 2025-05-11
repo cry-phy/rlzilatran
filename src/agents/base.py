@@ -1,7 +1,7 @@
 from tkinter import Event
 from game.game import Game
 from enum import Enum, auto
-from game.utils import Board
+from game.utils import Board, MoveFlag
 from mpi.handler import MPIHandler
 import torch
 import tkinter as tk
@@ -36,13 +36,15 @@ class BaseAgent:
     def __init__(self, game: Game) -> None:
         """Initialize agent with ownership over threads."""
         self.mpi: MPIHandler = MPIHandler()
-        self._game = game
-        self._root = None
-        self._player = game.state.player
-        self._move_ready = False
-        self._move_tensor = torch.zeros(Board.move_tensor_shape)
-        self._value = 0
+        self._game: Game = game
+        self._root: tk.Tk | None = None
+        self._player: bool = game.state.player
+        self._move_ready: bool = False
+        self._move_flag: MoveFlag = MoveFlag.STANDARD
+        self._move_tensor: torch.Tensor = torch.zeros(Board.move_tensor_shape)
+        self._value: float = 0
 
+        # For clickable Agents.
         self.selected: Tool = Tool.MOVE
         self._selected_var: tk.IntVar | None = None
 
@@ -69,6 +71,15 @@ class BaseAgent:
         """Move ready flag."""
         return self._move_ready
 
+    @property
+    def move_flag(self) -> MoveFlag:
+        """The move_flag property."""
+        return self._move_flag
+
+    @move_flag.setter
+    def move_flag(self, value):
+        self._move_flag = value
+
     def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
         """Generate a move for the current game."""
         raise NotImplementedError
@@ -81,15 +92,16 @@ class BaseAgent:
         """Get evaluation of current State."""
         raise NotImplementedError
 
-    def make_move(self, x1, y1, x2, y2) -> None:
+    def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
         """Make specific move."""
-        self._game.make_move(x1, y1, x2, y2)
+        self._game.make_move(x1, y1, x2, y2, flag)
+        self.move_flag = MoveFlag.STANDARD
         self._move_ready = False
 
     # -- MPI compatability --
     def bcast_move(
-        self, move: tuple[int, int, int, int] | None
-    ) -> tuple[int, int, int, int]:
+        self, move: tuple[int, int, int, int, int] | None
+    ) -> tuple[int, int, int, int, int]:
         """Broadcast the next move to all node ranks."""
         bcast_move = self.mpi.bcast_decided_move(move)
         return bcast_move

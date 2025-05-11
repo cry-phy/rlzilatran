@@ -1,3 +1,4 @@
+from enum import IntEnum, auto
 import torch
 import numpy as np
 from copy import deepcopy
@@ -5,6 +6,19 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+class MoveFlag(IntEnum):
+    """Encodes actions outside the board to flags for moves."""
+
+    STANDARD = auto()
+    CAPTURE_CALL = auto()
+
+    # The following are only for human players for now as
+    # opposed to the computer they have limited time.
+    RESIGN = auto()
+    DRAW_OFFER = auto()
+
 
 if TYPE_CHECKING:
     from game.state import State
@@ -131,9 +145,11 @@ class __BoardMaster:
     def generate_max_capture_value(self) -> float:
         """Pregenerate sum of all captures."""
         total_values_piece = [
-            self._piece_value_dict[piece] * len(self._initial_piece_dictionary[piece])
+            self._piece_value_dict[piece]
+            * self._initial_piece_dictionary[piece].shape[1]
             for piece in self.pieces
         ]
+        print("SUMMATION", total_values_piece)
         return sum(total_values_piece)
 
     def convert_dict_list(self, piece_any_dict) -> list[Any]:

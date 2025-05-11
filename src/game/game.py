@@ -58,13 +58,18 @@ class Game:
         """Load game state from torch tensor file."""
         self.state = State.from_file(path)
 
-    def make_move(self, x1: int, y1: int, x2: int, y2: int) -> None:
+    def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
         """Make move."""
         logger.debug(
-            "Making move: (%s, %s), (%s, %s)", int(x1), int(y1), int(x2), int(y2)
+            "Making move: (%i, %i), (%i, %i), flag: %i",
+            int(x1),
+            int(y1),
+            int(x2),
+            int(y2),
+            int(flag),
         )
         self.last_moves.appendleft(self.state.state)
-        self.state.make_move(x1, y1, x2, y2)
+        self.state.make_move(x1, y1, x2, y2, flag)
 
     def get_piece_targets(self, x: int, y: int) -> torch.Tensor:
         """Get all move target squares of a single piece."""
