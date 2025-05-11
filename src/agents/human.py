@@ -81,9 +81,10 @@ class HumanAgent(BaseAgent):
         """Decide beween Human Agent and dummy agent."""
         mpi = MPIHandler()
         if mpi._orank == mpi.OBSERVER_ORANK:
-            return DummyAgent(game)
-        else:
             return super().__new__(cls)
+        else:
+            logger.debug("Replacing HumanAgent with DummyAgent.")
+            return DummyAgent(game)
 
     def __init__(self, game: Game) -> None:
         """Initialize Human interactible agent."""

@@ -251,6 +251,7 @@ class UIObserverProcess(MPIProcess):
             move = current_agent.generate_move(move_tensor)
             bcast_move = current_agent.bcast_move(move)
             current_agent.make_move(*bcast_move)
+            self.obs.redraw_board()
             self.obs.add_data(state_tensor, value, move_tensor)
 
             if current_agent.clickable:

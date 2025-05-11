@@ -155,6 +155,10 @@ class MPIHandler:
             )
         self._init = True
 
+    def force_exit(self):
+        """Force world comm abort."""
+        self.wcomm.Abort(1)
+
     def send_exit(self) -> list[MPI.Request]:
         """Send exit message to all ranks."""
         requests: list[MPI.Request] = []
@@ -356,6 +360,32 @@ class MPIHandler:
         )
 
 
+def send_gracefull_exit():
+    """Gracefully Shutdown all processes."""
+    mpi = MPIHandler()
+    requests = mpi.send_exit()
+    mpi.recv_exit()
+    while requests:
+        to_remove: list[MPI.Request] = []
+        for req in requests:
+            if req.Get_status():
+                to_remove.append(req)
+        [requests.remove(req) for req in to_remove]
+    mpi.finalize()
+    logger.debug("Finalized MPI on rank %i", mpi._wrank)
+    sys.exit(1)
+
+
+def handle_gracefull_exit():
+    """Handle exit call."""
+    mpi = MPIHandler()
+    mpi.recv_exit()
+    logger.info("Different Rank observed exception. Finalizing.")
+    mpi.finalize()
+    logger.debug("Finalized MPI on rank %i", mpi._wrank)
+    sys.exit(1)
+
+
 def gracefull_error(func):
     """Wrap enabling MPI shutdown on Exception.
 
@@ -368,24 +398,12 @@ def gracefull_error(func):
         mpi = MPIHandler()
         try:
             if mpi.probe_exit():
-                mpi.recv_exit()
-                logger.info("Different Rank observed exception. Finalizing.")
-                mpi.finalize()
-                sys.exit()
+                handle_gracefull_exit()
             value = func(*args, **kwargs)
         except Exception as e:
             logger.info("In function %s: \n %s", func.__name__, e)
             value = None
-            requests = mpi.send_exit()
-            mpi.recv_exit()
-            while requests:
-                to_remove: list[MPI.Request] = []
-                for req in requests:
-                    if req.Get_status():
-                        to_remove.append(req)
-                [requests.remove(req) for req in to_remove]
-            mpi.finalize()
-            sys.exit()
+            send_gracefull_exit()
         return value
 
     return wrapper

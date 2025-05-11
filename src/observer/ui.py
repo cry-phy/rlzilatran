@@ -84,6 +84,8 @@ class UIObserver(BaseObserver):
         self.root.bind_all("<Control-o>", lambda _: self.on_load())
         self.root.bind_all("<Control-n>", lambda _: self.new_empty())
 
+        self.root.protocol("WM_DELETE_WINDOW", self.exit_mpi)
+
         self.draw_board()
 
     def _add_save_menu(self) -> None:
@@ -96,7 +98,7 @@ class UIObserver(BaseObserver):
         )
         filemenu.add_command(label="Restart", command=self.on_restart)
         filemenu.add_separator()
-        filemenu.add_command(label="Quit", command=self.root.quit)
+        filemenu.add_command(label="Quit", command=self.exit_mpi)
         self.menubar.add_cascade(label="File", menu=filemenu)
 
     def _add_tool_menu(self) -> None:
@@ -251,6 +253,12 @@ class UIObserver(BaseObserver):
         if path:
             self.game.load(path)
             self.redraw_board()
+
+    def exit_mpi(self):
+        """Force quitting all Ranks."""
+        logger.info("Quitting GUI.")
+        self.root.destroy()
+        self.mpi.force_exit()
 
     def new_empty(self) -> None:
         """Generate empty board."""
