@@ -6,5 +6,5 @@ MPI_SHUTDOWN_WAIT = 10
 
 [obs]
 GUI = true
-agent1 = "HumanAgent"
+agent1 = "MinimaxAgent"
 agent2 = "HumanAgent"

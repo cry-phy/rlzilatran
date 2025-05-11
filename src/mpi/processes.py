@@ -1,6 +1,4 @@
 import logging
-
-
 from config import get_config
 from game.game import Game
 from mpi.handler import MPIHandler, gracefull_error
@@ -147,10 +145,14 @@ class AgentProcess(MPIProcess):
         """Agent Control Flow."""
         current_agent = self.agents[self.game.state.player]
         current_agent.generate_move_tensor()
+        logger.debug("Generated Move Tensor.")
         _ = current_agent.reduce_move_tensors()
+        _ = current_agent.reduce_values()
         move = None
+        logger.debug("Awaiting Move")
         bcast_move = current_agent.bcast_move(move)
         current_agent.make_move(*bcast_move)
+        logger.info("Move Executed: %s", bcast_move)
 
 
 class ObserverProcess(MPIProcess):
@@ -185,6 +187,7 @@ class ObserverProcess(MPIProcess):
         state_tensor = self.obs.game.state_tensor
         current_agent = self.obs.agents[self.obs.game.state.player]
         current_agent.generate_move_tensor()
+        logger.debug("Generated Move")
         sum_move_tensor = current_agent.reduce_move_tensors()
         sum_value = current_agent.reduce_values()
         move_tensor = sum_move_tensor / self.osize
@@ -193,8 +196,10 @@ class ObserverProcess(MPIProcess):
         else:
             value = sum_value / self.osize
         move = current_agent.generate_move(move_tensor)
+        logger.debug("Sending Move.")
         bcast_move = current_agent.bcast_move(move)
         current_agent.make_move(*bcast_move)
+        logger.info("Move Executed: %s", bcast_move)
         self.obs.add_data(state_tensor, value, move_tensor)
 
     @gracefull_error
@@ -241,6 +246,7 @@ class UIObserverProcess(MPIProcess):
 
         if current_agent.move_ready:
             current_agent.generate_move_tensor()
+            logger.debug("Generated Move")
             sum_move_tensor = current_agent.reduce_move_tensors()
             sum_value = current_agent.reduce_values()
             move_tensor = sum_move_tensor / self.osize
@@ -249,14 +255,22 @@ class UIObserverProcess(MPIProcess):
             else:
                 value = sum_value / self.osize
             move = current_agent.generate_move(move_tensor)
+            logger.debug("Sending Move.")
             bcast_move = current_agent.bcast_move(move)
             current_agent.make_move(*bcast_move)
+            print(self.obs.game.state, current_agent._game.state)
+            logger.info("Move Executed: %s", bcast_move)
             self.obs.redraw_board()
             self.obs.add_data(state_tensor, value, move_tensor)
 
             if current_agent.clickable:
                 self.obs.post_clickable_input()
+
         if not self.obs.game.game_over():
             self.obs.wait(self.main_step)
         else:
             logger.info("Game over.")
+            print(current_agent._game.state.check_capture_call_termination())
+            print(current_agent._game.state.check_capture_termination())
+            print(current_agent._game.state.check_half_empty())
+            print(current_agent._game.state.check_captured_value_termination())

@@ -103,6 +103,7 @@ class HumanAgent(BaseAgent):
             Tool.FORCE_MOVE: self.tool_force_move,
         }
         self._CELL_SIZE = 80
+        self._move_ready = False
 
     @property
     def cell_size(self):
@@ -289,6 +290,11 @@ class HumanAgent(BaseAgent):
     def remove_piece(self, x: int, y: int) -> None:
         """Clear square."""
         self._game.state.clear_square(x, y)
+
+    def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
+        """Extend make move to reset move_ready flag."""
+        super().make_move(x1, y1, x2, y2, flag)
+        self._move_ready = False
 
     # -- Visuals in GUI --
     def possible_moves(self, x: int, y: int) -> torch.Tensor:

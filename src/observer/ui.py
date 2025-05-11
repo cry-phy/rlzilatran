@@ -234,7 +234,8 @@ class UIObserver(BaseObserver):
 
     def draw_pieces(self) -> None:
         """Draw pieces."""
-        current_state = self.game.state.state
+        current_state = self.game.state.state.clone()
+        print(current_state)
         for piece in Board.pieces:
             piece_layer = (
                 current_state[Board.layer_from_piece(piece)]

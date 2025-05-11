@@ -1,5 +1,4 @@
 from copy import deepcopy
-
 from game.state import State
 from game.utils import Board
 from typing import Callable
@@ -21,7 +20,7 @@ class Game:
 
         Should not be used directly! Use factory Methods instead.
         """
-        logger.info("Generating Game.")
+        logger.debug("Generating Game.")
         self.state: State = state
         self.last_moves: deque[torch.Tensor] = last_moves
 
@@ -165,13 +164,13 @@ class RecordGame(Game):
         """Generate new empty game."""
         last_moves = deque(maxlen=cls.HIST_LEN)
         last_moves.appendleft(Board.empty_board())
-        return cls(Board.empty_board(), last_moves, folder_name)
+        return cls(State.from_tensor(Board.empty_board()), last_moves, folder_name)
 
     def get_state_name(self) -> str:
         """Hash the state to a file name."""
         return f"{hex(hash(self.state.tensor_reference))}.pt"
 
-    def record(self, x1: int, y1: int, x2: int, y2: int) -> None:
+    def record(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
         """Record made move."""
         self.recent_file_names.appendleft(self.get_state_name())
         self.state.save(self.recent_file_names[0])
@@ -180,7 +179,7 @@ class RecordGame(Game):
                 f"{self.recent_file_names[0]},{self.recent_file_names[1]},{x1},{y1},{x2},{y2}\n"
             )
 
-    def make_move(self, x1: int, y1: int, x2: int, y2: int) -> None:
+    def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
         """Make move while recording."""
-        super().make_move(x1, y1, x2, y2)
-        self.record(x1, y1, x2, y2)
+        super().make_move(x1, y1, x2, y2, flag)
+        self.record(x1, y1, x2, y2, flag)

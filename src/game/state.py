@@ -1,3 +1,4 @@
+from copy import deepcopy
 from game.utils import Board, MoveFlag
 import torch
 import json
@@ -111,7 +112,12 @@ class State:
     @classmethod
     def from_state(cls, state: "State") -> "State":
         """Create copy from state for copy operations."""
-        return cls(state.state, state.player, state.captured_value, state.since_capture)
+        return cls(
+            state.state,
+            state.player,
+            deepcopy(state.captured_value),
+            state.since_capture,
+        )
 
     # --- Dunder Methods ---
     def __eq__(self, other: "State") -> bool:
@@ -265,7 +271,7 @@ class State:
                 :,
                 int(not self._player) * Board.num_pieces : (1 + int(not self._player))
                 * Board.num_pieces,
-            ].to(bool)
+            ].to(dtype=torch.bool)
         )
 
     def check_captured_value_termination(self) -> bool:

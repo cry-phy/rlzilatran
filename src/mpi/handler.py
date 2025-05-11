@@ -3,6 +3,8 @@ from functools import wraps
 import logging
 import sys
 from time import time
+import traceback
+
 
 from dynaconf import Dynaconf
 from game.utils import Board
@@ -288,13 +290,15 @@ class MPIHandler:
 
     def reduce_move_tensors(self, move_tensor: torch.Tensor) -> torch.Tensor:
         """Gather all move suggestion tensors from agents."""
-        move_numpy_sum = np.empty(Board.move_tensor_shape)
+        logger.debug("Reducing move Tensors")
+        move_numpy_sum = np.empty(Board.move_tensor_shape, dtype=np.float32)
         move_numpy = move_tensor.numpy()
         self.ocomm.Reduce(move_numpy, move_numpy_sum, MPI.SUM)
         return torch.from_numpy(move_numpy_sum)
 
     def reduce_values(self, value: float) -> float | None:
         """Reduce values from all ocomm."""
+        logger.debug("Reducing values.")
         red_value: float | None = self.ocomm.reduce(value, MPI.SUM, self.OBSERVER_ORANK)
         return red_value
 
@@ -399,8 +403,11 @@ def gracefull_error(func):
             if mpi.probe_exit():
                 handle_gracefull_exit()
             value = func(*args, **kwargs)
-        except Exception as e:
-            logger.info("In function %s: \n %s", func.__name__, e)
+        except Exception:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            tb_list = traceback.format_exception(exc_type, exc_value, exc_tb)
+            tb_str = "".join(tb_list)
+            logger.info("In function %s: \n %s", func.__name__, tb_str)
             value = None
             send_gracefull_exit()
         return value

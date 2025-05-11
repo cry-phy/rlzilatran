@@ -164,8 +164,22 @@ class __BoardMaster:
 
     def move_from_index(
         self, index: int | torch.Tensor
-    ) -> tuple[int | torch.Tensor, int | torch.Tensor]:
-        return index % self.x, index // self.x
+    ) -> tuple[int | torch.Tensor, int | torch.Tensor, int | torch.Tensor]:
+        x = index % self.x
+        y = index // self.x
+        if torch.is_tensor(index):
+            flag = torch.where(
+                index == 33,
+                torch.tensor(int(MoveFlag.CAPTURE_CALL)),
+                torch.tensor(int(MoveFlag.STANDARD)),
+            )
+        else:
+            flag = (
+                int(MoveFlag.STANDARD)
+                if not index == 33
+                else int(MoveFlag.CAPTURE_CALL)
+            )
+        return x, y, flag
 
     def generate_p_moves(self, x: int, y: int, state: "State") -> torch.Tensor:
         """Pregenerate moves for Private."""
