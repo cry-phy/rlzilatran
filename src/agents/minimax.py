@@ -1,7 +1,7 @@
 from typing import Callable
 from game.game import Game
 from agents.base import BaseAgent
-from game.utils import Board
+from game.utils import Board, MoveFlag
 import torch
 
 
@@ -50,7 +50,7 @@ class MinimaxAgent(BaseAgent):
         """Get Capture of current player."""
         return game.state.captured_value[self._player]
 
-    def mobility(self, game: Game) -> float:
+    def mobility(self, game: Game) -> torch.Tensor:
         """Get mobility score of current player."""
         return game.move_mask().to(torch.int32).sum()
 
@@ -71,34 +71,40 @@ class MinimaxAgent(BaseAgent):
             valuations[index] = self._weights[key] * self._metrics[key](game)
         return valuations.sum()
 
-    def minimax(self, depth: int, game: Game) -> float:
+    def minimax(self, depth: int, game: Game) -> torch.Tensor:
         """Actual minimax algorithm in recursion format."""
         if depth == self._depth or self._game.game_over():
             return self.single_state_valuation(game)
 
-        state_value: float = 0
+        state_value: torch.Tensor = torch.tensor([], dtype=torch.float32)
         if self._player == self._game.state.player:
             best: float = -float("inf")
             for x, y, index in game.all_moves():
                 new_game: Game = game.copy()
-                new_game.make_move(x, y, *Board.move_from_index(index))
+                new_game.make_move(
+                    x, y, *Board.move_from_index(index), MoveFlag.STANDARD
+                )
                 val = self.minimax(depth - 1, new_game)
                 best = max(best, val)
         else:
             best: float = float("inf")
             for x, y, index in game.all_moves():
                 new_game: Game = game.copy()
-                new_game.make_move(x, y, *Board.move_from_index(index))
+                new_game.make_move(x, y, *Board.move_from_index(index), 0)
                 val = self.minimax(depth - 1, new_game)
                 best = min(best, val)
         return state_value
 
     # -- MPI compatability --
-    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+    def generate_move(
+        self, move_tensor: torch.Tensor
+    ) -> tuple[
+        int | torch.Tensor, int | torch.Tensor, int | torch.Tensor, int | torch.Tensor
+    ]:
         """Generate a move for the current game."""
         move_indices = torch.argmax(move_tensor)
-        x1: int = move_indices[0]
-        y1: int = move_indices[1]
+        x1: torch.Tensor = move_indices[0]
+        y1: torch.Tensor = move_indices[1]
         x2, y2 = Board.move_from_index(move_indices[2])
         return x1, y1, x2, y2
 

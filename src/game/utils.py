@@ -162,7 +162,9 @@ class __BoardMaster:
     def index_from_move(self, x, y) -> int:
         return y * self.x + x
 
-    def move_from_index(self, index: int) -> tuple[int, int]:
+    def move_from_index(
+        self, index: int | torch.Tensor
+    ) -> tuple[int | torch.Tensor, int | torch.Tensor]:
         return index % self.x, index // self.x
 
     def generate_p_moves(self, x: int, y: int, state: "State") -> torch.Tensor:
@@ -292,7 +294,7 @@ class __BoardMaster:
             and y < (1 + int(player)) * Board.board_size[1] // 2
         )
 
-    def half_indices(self, y: int) -> tuple[int, int]:
+    def half_indices(self, y: int | torch.Tensor) -> tuple[int, int]:
         """Get indices equating to player layers."""
         jbool = not (y <= self.num_pieces)
         j1 = int(jbool) * self.num_pieces

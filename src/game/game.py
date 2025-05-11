@@ -58,7 +58,14 @@ class Game:
         """Load game state from torch tensor file."""
         self.state = State.from_file(path)
 
-    def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
+    def make_move(
+        self,
+        x1: int | torch.Tensor,
+        y1: int | torch.Tensor,
+        x2: int | torch.Tensor,
+        y2: int | torch.Tensor,
+        flag: int,
+    ) -> None:
         """Make move."""
         logger.debug(
             "Making move: (%i, %i), (%i, %i), flag: %i",

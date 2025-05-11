@@ -296,7 +296,14 @@ class State:
         )
 
     # --- Board Manipulations ---
-    def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
+    def make_move(
+        self,
+        x1: int | torch.Tensor,
+        y1: int | torch.Tensor,
+        x2: int | torch.Tensor,
+        y2: int | torch.Tensor,
+        flag: int,
+    ) -> None:
         """Make move corresponding to index."""
         match flag:
             case int(MoveFlag.STANDARD):
@@ -309,7 +316,13 @@ class State:
                 self.offer_draw()
         self._player = not self._player
 
-    def standard_move(self, x1: int, y1: int, x2: int, y2: int) -> None:
+    def standard_move(
+        self,
+        x1: int | torch.Tensor,
+        y1: int | torch.Tensor,
+        x2: int | torch.Tensor,
+        y2: int | torch.Tensor,
+    ) -> None:
         """Move a piece to another square."""
         # Capture logic handling.
         capture_layer: torch.Tensor = torch.where(self._tensor[:, x2, y2])[0]
@@ -353,7 +366,7 @@ class State:
 
     def add_piece(self, x: int, y: int, piece: str) -> None:
         """Add Piece to certain layer."""
-        layer: torch.Tensor = Board.layer_from_piece(piece)
+        layer: int = Board.layer_from_piece(piece)
         i1, _ = Board.half_indices(y)
         self._tensor[i1 + layer, x, y] = 1
 
