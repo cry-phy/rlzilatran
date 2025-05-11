@@ -1,11 +1,20 @@
 from tkinter import Event
 from game.game import Game
 from enum import Enum, auto
+from game.utils import Board
+from mpi.handler import MPIHandler
+import torch
+import tkinter as tk
+
+import importlib
+import pkgutil
+import agents
 
 
 class Tool(Enum):
     """Enum for handling selected tool."""
 
+    NONE = auto()
     MOVE = auto()
     INMOVE = auto()
     ADDP = auto()
@@ -24,13 +33,18 @@ class BaseAgent:
 
     clickable: bool = False
 
-    def __init__(self, game: Game, workers: tuple[int, ...]) -> None:
+    def __init__(self, game: Game) -> None:
         """Initialize agent with ownership over threads."""
+        self.mpi: MPIHandler = MPIHandler()
         self._game = game
-        self._workers = workers
         self._root = None
         self._player = game.state.player
         self._move_ready = False
+        self._move_tensor = torch.zeros(Board.move_tensor_shape)
+        self._value = 0
+
+        self.selected: Tool = Tool.MOVE
+        self._selected_var: tk.IntVar | None = None
 
     @property
     def player(self):
@@ -44,17 +58,53 @@ class BaseAgent:
     @property
     def selected_var(self):
         """The selected_var property."""
-        raise NotImplementedError
+        return self._selected_var
 
     @selected_var.setter
     def selected_var(self, value):
-        raise NotImplementedError
+        self._selected_var = value
 
     @property
     def move_ready(self) -> bool:
         """Move ready flag."""
         return self._move_ready
 
+    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+        """Generate a move for the current game."""
+        raise NotImplementedError
+
+    def generate_move_tensor(self) -> None:
+        """Generate move tensor and value."""
+        raise NotImplementedError
+
+    def get_state_value(self) -> float:
+        """Get evaluation of current State."""
+        raise NotImplementedError
+
+    def make_move(self, x1, y1, x2, y2) -> None:
+        """Make specific move."""
+        self._game.make_move(x1, y1, x2, y2)
+        self._move_ready = False
+
+    # -- MPI compatability --
+    def bcast_move(
+        self, move: tuple[int, int, int, int] | None
+    ) -> tuple[int, int, int, int]:
+        """Broadcast the next move to all node ranks."""
+        bcast_move = self.mpi.bcast_decided_move(move)
+        return bcast_move
+
+    def reduce_move_tensors(self) -> torch.Tensor:
+        """Reduce the move tensor to observer rank."""
+        sum_move_tensor = self.mpi.reduce_move_tensors(self._move_tensor)
+        return sum_move_tensor
+
+    def reduce_values(self) -> float | None:
+        """Reduce values from all ocomm."""
+        red_value: float | None = self.mpi.reduce_values(self._value)
+        return red_value
+
+    # -- Functions for GUI --
     @property
     def cell_size(self):
         """The CELL_SIZE property."""
@@ -64,16 +114,6 @@ class BaseAgent:
     def cell_size(self, value):
         raise NotImplementedError
 
-    def generate_move(self) -> tuple[int, int, int, int]:
-        """Generate a move for the current game."""
-        raise NotImplementedError
-
-    def make_move(self, x1, y1, x2, y2) -> None:
-        """Hnd throug hmove reset move ready."""
-        self._game.make_move(x1, y1, x2, y2)
-        self._move_ready = False
-
-    # -- Functions for GUI --
     def handle_click(self, event: Event) -> None:
         """Handle a click event.
 
@@ -97,3 +137,31 @@ class BaseAgent:
     def possible_moves(self, x: int, y: int) -> list[tuple[int, int]]:
         """Get currently propable moves."""
         raise NotImplementedError
+
+
+def __import_all_modules(package):
+    """Import all submodules in certain module."""
+    for _, module_name, _ in pkgutil.iter_modules(
+        package.__path__, package.__name__ + "."
+    ):
+        importlib.import_module(module_name)
+
+
+def __get_all_subclasses(base_class):
+    """Glob all subclasses of a base class in the namespace."""
+    subclasses = set()
+
+    def recurse(cls):
+        for subclass in cls.__subclasses__():
+            subclasses.add(subclass)
+            recurse(subclass)
+
+    recurse(base_class)
+    return subclasses
+
+
+def agent_class_dict() -> dict[str, type[BaseAgent]]:
+    """Build full dictionary of agent classes."""
+    __import_all_modules(agents)
+    subclasses = __get_all_subclasses(BaseAgent)
+    return {cls.__name__: cls for cls in subclasses}

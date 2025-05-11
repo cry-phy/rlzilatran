@@ -6,9 +6,10 @@ from game.game import Game
 import logging
 import torch
 from game.utils import Board
-import tkinter as tk
 import functools
 import inspect
+
+from mpi.handler import MPIHandler
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -38,16 +39,56 @@ PIECE_TOOL_DICT = {
 }
 
 
+class DummyAgent(BaseAgent):
+    """Class for the non Observer ranks.
+
+    Does not return any usefull data  but is able to act as a fully implemented Agent.
+    """
+
+    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+        """Generate a move.
+
+        The Human player bypasses the Move selection by only reading on the observer rank.
+        """
+        return (-1, -1, -1, -1)
+
+    def generate_move_tensor(self) -> None:
+        """Generate empty move tensor and value.
+
+        The Human player bypasses the Move selection by only reading on the observer rank.
+        """
+        self._move_tensor = torch.zeros(Board.move_tensor_shape)
+        self._value = -1
+
+    def reduce_move_tensors(self) -> torch.Tensor:
+        """Reduce the move tensor to observer rank."""
+        return self._move_tensor
+
+    def reduce_values(self) -> float | None:
+        """Reduce values from all ocomm."""
+        return self._value
+
+
 class HumanAgent(BaseAgent):
-    """Handle GUI input."""
+    """Handle GUI input from human.
+
+    Needs to run only on the observer rank.
+    """
 
     clickable: bool = True
 
-    def __init__(self, game: Game, workers: tuple[int]) -> None:
+    def __new__(cls, game: Game) -> "HumanAgent | BaseAgent":
+        """Decide beween Human Agent and dummy agent."""
+        mpi = MPIHandler()
+        if mpi._orank == mpi.OBSERVER_ORANK:
+            return super().__new__(cls)
+        else:
+            logger.debug("Replacing HumanAgent with DummyAgent.")
+            return DummyAgent(game)
+
+    def __init__(self, game: Game) -> None:
         """Initialize Human interactible agent."""
-        super().__init__(game, workers)
-        self.selected: Tool = Tool.MOVE
-        self._selected_var: tk.IntVar | None = None
+        super().__init__(game)
         self._selected_position: tuple[int, int] = (0, 0)
         self.tool_function_dict: dict[Tool, Callable[[int, int], None]] = {
             Tool.MOVE: self.tool_move,
@@ -69,15 +110,6 @@ class HumanAgent(BaseAgent):
     @cell_size.setter
     def cell_size(self, value):
         self._CELL_SIZE = value
-
-    @property
-    def selected_var(self):
-        """The selected_var property."""
-        return self._selected_var
-
-    @selected_var.setter
-    def selected_var(self, value):
-        self._selected_var = value
 
     def selected_positions(self) -> list[tuple[int, int]]:
         """Return selected positions. Overriding BaseAgent."""
@@ -106,16 +138,36 @@ class HumanAgent(BaseAgent):
         self.tool_function_dict[self.selected](x, y)
         return super().handle_click(event)
 
-    def generate_move(self) -> tuple[int, int, int, int]:
-        """Generate a move."""
+    # -- MPI compatability --
+    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+        """Generate a move.
+
+        The Human player bypasses the Move selection by only reading on the observer rank.
+        """
         return copy(self._move)
 
-    def possible_moves(self, x: int, y: int) -> torch.IntTensor:
-        """Generate a move."""
-        if self.selected == Tool.INMOVE:
-            return self._possible_moves
+    def generate_move_tensor(self) -> None:
+        """Generate empty move tensor and value.
+
+        The Human player bypasses the Move selection by only reading on the observer rank.
+        """
+        winner = self._game.winner()
+        if winner is None:
+            self._value = 0
+        elif winner == self._player:
+            self._value = 1
         else:
-            torch.empty(0, 2)
+            self._value = -1
+        self._move_tensor = torch.zeros(Board.move_tensor_shape)
+
+    # Overwrite MPI interactions since communication is not necessary
+    def reduce_move_tensors(self) -> torch.Tensor:
+        """Reduce the move tensor to observer rank."""
+        return self._move_tensor
+
+    def reduce_values(self) -> float | None:
+        """Reduce values from all ocomm."""
+        return self._value
 
     # -- Tools --
     @on_grid
@@ -185,7 +237,7 @@ class HumanAgent(BaseAgent):
     # -- Click validity --
     def first_click_validity(self, x: int, y: int) -> bool:
         """Check whether square is valid for selection."""
-        return self._game.state.state[:, x, y].sum(axis=0) and Board.player_half(
+        return self._game.state.square_filled(x, y) and Board.player_half(
             y, self._game.state.player
         )
 
@@ -210,3 +262,11 @@ class HumanAgent(BaseAgent):
     def remove_piece(self, x: int, y: int) -> None:
         """Clear square."""
         self._game.state.clear_square(x, y)
+
+    # -- Visuals in GUI --
+    def possible_moves(self, x: int, y: int) -> torch.Tensor:
+        """Generate a move."""
+        if self.selected == Tool.INMOVE:
+            return self._possible_moves
+        else:
+            torch.empty(0, 2)

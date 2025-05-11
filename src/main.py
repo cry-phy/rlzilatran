@@ -1,21 +1,24 @@
-from agents.human import HumanAgent
 import logging
 import sys
+from mpi4py import MPI
 
-from observer.ui import UIObserver
+from config import get_config
+from mpi.handler import MPIHandler
+from mpi.processes import get_process
 
 
-def setup_logging(rank: int = 0):
+def setup_logging(rank: int = 0, level: int = logging.DEBUG):
     """Set root logger.
 
     Configure the root logger to write to stdout,
     embedding a rank placeholder for future MPI use.
     """
+    print(f"Setting up logging ({level}) on Rank: {rank}")
     fmt = "%(asctime)s [rank:%(rank)d] %(levelname)s %(name)s: %(message)s"
     root = logging.getLogger()
-    root.setLevel(logging.DEBUG)
+    root.setLevel(level)
     handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.DEBUG)
+    handler.setLevel(level)
     formatter = logging.Formatter(fmt)
     handler.setFormatter(formatter)
     root.handlers.clear()
@@ -32,14 +35,20 @@ def setup_logging(rank: int = 0):
 
 def main():
     """Run central loop."""
-    rank = 0
-    setup_logging(rank)
-
+    wcomm = MPI.COMM_WORLD
+    wrank = wcomm.Get_rank()
+    setup_logging(wrank, logging.DEBUG)
     logger = logging.getLogger(__name__)
-    logger.info("Starting application")
+    logger.info("Logging initialized.")
 
-    observer = UIObserver.any_vs_any(HumanAgent, HumanAgent, (0, 1))
-    observer.run()
+    config = get_config()
+    MPIHandler(config)
+    logger.info("MPI initialized.")
+
+    process = get_process()
+    logger.info("Processes initialized. Running ...")
+
+    process.run()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 from copy import deepcopy
+
 from game.state import State
 from game.utils import Board
 from typing import Callable
@@ -13,16 +14,16 @@ logger: logging.Logger = logging.getLogger(__name__)
 class Game:
     """Game/States/Rules."""
 
-    HIST_LEN = 8
+    HIST_LEN = Board.HISTORY_LENGTH
 
-    def __init__(self, state: State, last_moves: deque[torch.IntTensor]) -> None:
+    def __init__(self, state: State, last_moves: deque[torch.Tensor]) -> None:
         """Generate Game instance.
 
         Should not be used directly! Use factory Methods instead.
         """
         logger.info("Generating Game.")
         self.state: State = state
-        self.last_moves: deque[torch.IntTensor] = last_moves
+        self.last_moves: deque[torch.Tensor] = last_moves
 
     @classmethod
     def new_game(cls) -> "Game":
@@ -67,22 +68,26 @@ class Game:
 
     def get_piece_targets(self, x: int, y: int) -> torch.Tensor:
         """Get all move target squares of a single piece."""
-        layers: torch.IntTensor = self.state.get_layer(x, y)
+        layers: torch.Tensor = self.state.get_layer(x, y)
         if layers.nelement() != 0:
             piece: str = Board.piece_from_layer(layers)
             move_generator: Callable = Board.moves_from_piece(piece)
             return move_generator(x, y, self.state)
+        else:
+            return torch.empty((0, 2), dtype=torch.int)
 
     @property
-    def training_tensor(self) -> torch.Tensor:
+    def state_tensor(self) -> torch.Tensor:
         """Stack the history and add additional information."""
-        torch.cat([*self.last_moves, *self.state.get_additional_channels()], dim=0)
+        return torch.cat(
+            [*self.last_moves, *self.state.get_additional_channels()], dim=0
+        )
 
     def full_move_tensor(self, value: float) -> torch.Tensor:
         """Get a move tensor with all moves equally likely."""
         return torch.full(Board.move_tensor_shape, value)
 
-    def move_mask(self) -> torch.BoolTensor:
+    def move_mask(self) -> torch.Tensor:
         """Get mask for viable moves in move tensor."""
         own_positions = torch.where(self.state.get_player_mask(self.state.player))
         mask = torch.full(Board.move_tensor_shape, False)
@@ -91,9 +96,9 @@ class Game:
             mask[x, y, Board.index_from_move(move_x, move_y)] = True
         return mask
 
-    def all_moves(self) -> torch.IntTensor:
+    def all_moves(self) -> tuple[torch.Tensor, ...]:
         """Get list of all moves."""
-        return torch.where(self.move_mask()).to(torch.int32)
+        return torch.where(self.move_mask())
 
     def game_over(self) -> bool:
         """Check game status."""

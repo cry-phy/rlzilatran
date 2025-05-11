@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 __all__ = ["Board"]
 
-PRIVATE_POSITIONS = torch.IntTensor(
+PRIVATE_POSITIONS = torch.tensor(
     [
         (2, 1),
         (1, 2),
@@ -19,9 +19,10 @@ PRIVATE_POSITIONS = torch.IntTensor(
         (-3, -2),
         (-2, -3),
         (-3, -3),
-    ]
+    ],
+    dtype=torch.int,
 ).T
-SERGEANT_POSITIONS = torch.IntTensor(
+SERGEANT_POSITIONS = torch.tensor(
     [
         (0, 2),
         (1, 1),
@@ -29,9 +30,10 @@ SERGEANT_POSITIONS = torch.IntTensor(
         (-1, -3),
         (-2, -2),
         (-3, -1),
-    ]
+    ],
+    dtype=torch.int,
 ).T
-OFFICER_POSITIONS = torch.IntTensor(
+OFFICER_POSITIONS = torch.tensor(
     [
         (0, 0),
         (0, 1),
@@ -39,7 +41,8 @@ OFFICER_POSITIONS = torch.IntTensor(
         (-1, -1),
         (-1, -2),
         (-2, -1),
-    ]
+    ],
+    dtype=torch.int,
 ).T
 
 
@@ -50,23 +53,25 @@ class __BoardMaster:
     TODO: Extend to read config Files.
     """
 
-    _PRIVATE_MOVES = torch.IntTensor(
+    _PRIVATE_MOVES = torch.tensor(
         [
             (-1, -1),
             (-1, 1),
             (1, 1),
             (1, -1),
-        ]
+        ],
+        dtype=torch.int,
     )
-    _SERGEANT_DIRECTIONS = torch.IntTensor(
+    _SERGEANT_DIRECTIONS = torch.tensor(
         [
             (-1, 0),
             (0, 1),
             (1, 0),
             (0, -1),
-        ]
+        ],
+        dtype=torch.int,
     )
-    _OFFICER_DIRECTIONS = torch.IntTensor(
+    _OFFICER_DIRECTIONS = torch.tensor(
         [
             (-1, -1),
             (-1, 0),
@@ -76,7 +81,8 @@ class __BoardMaster:
             (1, 0),
             (1, -1),
             (0, -1),
-        ]
+        ],
+        dtype=torch.int,
     )
 
     def __init__(self) -> None:
@@ -86,6 +92,9 @@ class __BoardMaster:
         self.NUM_LAYERS = 2 * len(self._pieces)
         self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
         self.MAX_MOVES = self.x * self.y + 1
+        self.HISTORY_LENGTH = 8
+        self.CHANNEL_NUMBER = (len(self._pieces) * 2) * self.HISTORY_LENGTH + 4
+        self.NUM_LEAVES = 256
         self._capture_clock = 7
         self._piece_unique_dict: dict[str, int] = {
             key: i for i, key in enumerate(self._pieces)
@@ -110,14 +119,12 @@ class __BoardMaster:
             "S": SERGEANT_POSITIONS,
             "O": OFFICER_POSITIONS,
         }
-        self._board: torch.IntTensor = torch.zeros(self.BOARD_DIMENSIONS).to(
-            dtype=torch.int32
+        self._board: torch.Tensor = torch.zeros(
+            self.BOARD_DIMENSIONS, dtype=torch.int32
         )
 
         self._layer_list = self.convert_dict_list(self._piece_layer_dict)
-        self._value_list = torch.IntTensor(
-            self.convert_dict_list(self._piece_value_dict)
-        )
+        self._value_list = torch.Tensor(self.convert_dict_list(self._piece_value_dict))
         self._move_list = self.convert_dict_list(self._piece_move_dict)
         self._max_capture_value = self.generate_max_capture_value()
 
@@ -142,62 +149,68 @@ class __BoardMaster:
     def move_from_index(self, index: int) -> tuple[int, int]:
         return index % self.x, index // self.x
 
-    def generate_p_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
+    def generate_p_moves(self, x: int, y: int, state: "State") -> torch.Tensor:
         """Pregenerate moves for Private."""
         # benchmarked against ray casting.
-        move_targets = self._PRIVATE_MOVES + torch.IntTensor([x, y])
+        move_targets = self._PRIVATE_MOVES + torch.tensor([x, y], dtype=torch.int)
         in_out_mask = self.valid_positions(move_targets)
         real_move_targets = move_targets[in_out_mask]
         own_mask = state.get_player_mask(state.player)
         keep = ~own_mask[real_move_targets[:, 0], real_move_targets[:, 1]]
         return real_move_targets[keep]
 
-    def generate_s_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
+    def generate_s_moves(self, x: int, y: int, state: "State") -> torch.Tensor:
         """Pregenerate moves for Sergeant."""
         # benchmarked against ray casting.
         moves = []
-        origin = torch.IntTensor([x, y])
+        origin = torch.tensor(
+            [
+                [x, y],
+            ],
+            dtype=torch.int,
+        )
         own_mask = state.get_player_mask(state.player)
         other_mask = state.get_player_mask(not state.player)
         for direction in self._SERGEANT_DIRECTIONS:
             for i in range(1, 3):
-                xi, yi = origin + i * direction
-                if not self.valid_position(xi, yi):
+                pos = origin + i * direction
+                if not self.valid_positions(pos):
                     break
-                if own_mask[xi, yi]:
+                if own_mask[pos[0, 0], pos[0, 1]]:
                     break
-                moves.append((xi, yi))
-                if other_mask[xi, yi]:
+                moves.append(pos)
+                if other_mask[pos[0, 0], pos[0, 1]]:
                     break
         if not moves:
             return torch.empty((0, 2), dtype=torch.int32)
-        return torch.IntTensor(moves)
+        return torch.concatenate(moves, dim=0)
 
-    def generate_o_moves(self, x: int, y: int, state: "State") -> torch.IntTensor:
+    def generate_o_moves(self, x: int, y: int, state: "State") -> torch.Tensor:
         """Pregenerate moves for Officer."""
         # benchmarked against ray casting.
         moves = []
-        origin = torch.IntTensor([x, y])
+        origin = torch.tensor(
+            [
+                [x, y],
+            ],
+            dtype=torch.int,
+        )
         own_mask = state.get_player_mask(state.player)
         other_mask = state.get_player_mask(not state.player)
         max_steps = max(self.BOARD_SIZE) - 1
         for direction in self._OFFICER_DIRECTIONS:
             for i in range(1, max_steps + 1):
-                xi, yi = origin + i * direction
-                if not self.valid_position(xi, yi):
+                pos = origin + i * direction
+                if not self.valid_positions(pos):
                     break
-                if own_mask[xi, yi]:
+                if own_mask[pos[0, 0], pos[0, 1]]:
                     break
-                moves.append((xi, yi))
-                if other_mask[xi, yi]:
+                moves.append(pos)
+                if other_mask[pos[0, 0], pos[0, 1]]:
                     break
         if not moves:
             return torch.empty((0, 2), dtype=torch.int32)
-        return torch.IntTensor(moves)
-
-    def _generate_move_tensor(self) -> torch.Tensor:
-        """Generate empty output tensor."""
-        torch.zeros()
+        return torch.concatenate(moves, dim=0)
 
     def _set_piece_position(self, key: str) -> None:
         """Set all piece positions."""
@@ -245,7 +258,7 @@ class __BoardMaster:
         return self.NUM_LAYERS
 
     @property
-    def pieces(self) -> list[str]:
+    def pieces(self) -> Iterable[str]:
         return self._pieces.copy()
 
     @property
@@ -278,14 +291,16 @@ class __BoardMaster:
         """Get value from piece."""
         return self._piece_value_dict[piece]
 
-    def moves_from_piece(self, piece: str) -> Callable[[int, int, "State"], int]:
+    def moves_from_piece(
+        self, piece: str
+    ) -> Callable[[int, int, "State"], torch.Tensor]:
         """Get moves from piece."""
         return self._piece_move_dict[piece]
 
-    def unqiue_from_layer(self, layer: int | torch.IntTensor) -> int | torch.IntTensor:
+    def unqiue_from_layer(self, layer: int | torch.Tensor) -> int | torch.Tensor:
         return layer % len(self._pieces)
 
-    def value_from_layer(self, layer: int | torch.IntTensor) -> float | torch.Tensor:
+    def value_from_layer(self, layer: int | torch.Tensor) -> float | torch.Tensor:
         return self._value_list[self.unqiue_from_layer(layer)]
 
     def piece_from_layer(self, layer: int) -> str:
@@ -294,7 +309,7 @@ class __BoardMaster:
     def valid_position(self, x: int, y: int) -> bool:
         return (x >= 0) and (x < self.x) and (y >= 0) and (y < self.y)
 
-    def valid_positions(self, positions: torch.Tensor) -> torch.BoolTensor:
+    def valid_positions(self, positions: torch.Tensor) -> torch.Tensor:
         return (
             (positions[:, 0] >= 0)
             & (positions[:, 0] < self.x)
@@ -306,6 +321,28 @@ class __BoardMaster:
     def move_tensor_shape(self) -> tuple[int, int, int]:
         """Get shape for move tensor."""
         return (*self.board_size, self.MAX_MOVES)
+
+    @property
+    def state_tensor_shape(self) -> tuple[int, int, int]:
+        return (*self.board_size, self.CHANNEL_NUMBER)
+
+    @property
+    def state_tensor_batch_shape(self) -> tuple[int, int, int, int]:
+        """Get shape for move tensor."""
+        return (*self.state_tensor_shape, self.NUM_LEAVES)
+
+    @property
+    def move_tensor_batch_shape(self) -> tuple[int, int, int, int]:
+        """Get shape for move tensor."""
+        return (*self.move_tensor_shape, self.NUM_LEAVES)
+
+    @property
+    def leaf_batch_shape(self) -> tuple[int, int, int, int]:
+        return (*self.state_tensor_shape, self.NUM_LEAVES)
+
+    @property
+    def value_batch_shape(self) -> tuple[int]:
+        return (self.NUM_LEAVES,)
 
 
 Board = __BoardMaster()
