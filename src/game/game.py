@@ -1,7 +1,11 @@
-from copy import deepcopy
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Callable
+
 from game.state import State
 from game.utils import Board
-from typing import Callable
 from collections import deque
 import torch
 import os
@@ -22,26 +26,29 @@ class Game:
         """
         logger.debug("Generating Game.")
         self.state: State = state
-        self.last_moves: deque[torch.Tensor] = last_moves
+        self.last_moves: deque[torch.Tensor] = deque(
+            (last_move.detach().clone() for last_move in last_moves),
+            maxlen=self.HIST_LEN,
+        )
 
     @classmethod
-    def new_game(cls) -> "Game":
+    def new_game(cls) -> Game:
         """Generate Initial game state."""
         last_moves = deque(maxlen=cls.HIST_LEN)
         [last_moves.appendleft(Board.empty_board()) for _ in range(cls.HIST_LEN)]
         return cls(State.initial_state(), last_moves)
 
     @classmethod
-    def from_game(cls, game: "Game") -> "Game":
+    def from_game(cls, game: Game) -> Game:
         """Copy from RecordGame."""
-        return cls(game.state.copy(), deepcopy(game.last_moves))
+        return cls(game.state.copy(), game.last_moves)
 
     @classmethod
-    def from_record_game(cls, record_game: "RecordGame") -> "Game":
+    def from_record_game(cls, record_game: RecordGame) -> Game:
         """Copy from RecordGame."""
-        return cls(record_game.state.copy(), deepcopy(record_game.last_moves))
+        return cls(record_game.state.copy(), record_game.last_moves)
 
-    def copy(self) -> "Game":
+    def copy(self) -> Game:
         """Copy operation."""
         return self.from_game(self)
 
@@ -155,12 +162,12 @@ class RecordGame(Game):
             f.write("STARTBOARD,ENDBOARD,MOVEX1,MOVEY1,MOVEX2,MOVEY2,VALIDITY\n")
 
     @classmethod
-    def copy_game(cls, game: Game, folder_name: str) -> "RecordGame":
+    def copy_game(cls, game: Game, folder_name: str) -> RecordGame:
         """Copy content from other game."""
         return cls(game.state, game.last_moves, folder_name)
 
     @classmethod
-    def new_game(cls, folder_name: str) -> "RecordGame":
+    def new_game(cls, folder_name: str) -> RecordGame:
         """Generate new empty game."""
         last_moves = deque(maxlen=cls.HIST_LEN)
         last_moves.appendleft(Board.empty_board())

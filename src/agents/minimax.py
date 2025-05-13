@@ -1,8 +1,13 @@
-from time import time
-from typing import Callable, cast
-from game.game import Game
+from __future__ import annotations
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from typing import Callable
+    from game.game import Game
+
 from agents.base import BaseAgent
 from game.utils import Board
+from time import time
 import torch
 import logging
 
@@ -31,7 +36,7 @@ class MinimaxAgent(BaseAgent):
         self.counter = 0
 
     @classmethod
-    def new(cls, game: Game, depth: int) -> "MinimaxAgent":
+    def new(cls, game: Game, depth: int) -> MinimaxAgent:
         """Generate Minimax agent with depth only."""
         instance = cls(game)
         instance.depth = depth

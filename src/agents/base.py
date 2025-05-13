@@ -1,15 +1,18 @@
-import logging
-from tkinter import Event
-from game.game import Game
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from game.game import Game
+    import tkinter as tk
+
 from enum import Enum, auto
 from game.utils import Board, MoveFlag
 from mpi.handler import MPIHandler
 import torch
-import tkinter as tk
-
 import importlib
 import pkgutil
 import agents
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +133,7 @@ class BaseAgent:
     def cell_size(self, value):
         raise NotImplementedError
 
-    def handle_click(self, event: Event) -> None:
+    def handle_click(self, event: tk.Event) -> None:
         """Handle a click event.
 
         Mainly for human player but might be used to limit thinking

@@ -1,8 +1,13 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Any, Callable, Iterable
+
 from enum import IntEnum, auto
-import torch
 import numpy as np
-from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from copy import copy
+import torch
 import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -106,7 +111,7 @@ class __BoardMaster:
         self.NUM_LAYERS = 2 * len(self._pieces)
         self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
         self.MAX_MOVES = self.x * self.y + 1
-        self.HISTORY_LENGTH = 8
+        self.HISTORY_LENGTH = 4
         self.CHANNEL_NUMBER = (len(self._pieces) * 2) * self.HISTORY_LENGTH + 4
         self.NUM_LEAVES = 256
         self._capture_clock = 7
@@ -273,7 +278,7 @@ class __BoardMaster:
     @property
     def board_size(self) -> tuple[int, int]:
         """Allow access to the board size."""
-        return deepcopy(self.BOARD_SIZE)
+        return copy(self.BOARD_SIZE)
 
     @property
     def x(self) -> int:

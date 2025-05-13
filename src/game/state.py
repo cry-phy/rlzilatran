@@ -113,7 +113,7 @@ class State:
     def from_state(cls, state: "State") -> "State":
         """Create copy from state for copy operations."""
         return cls(
-            state.state,
+            state.state.clone(),
             state.player,
             copy(state.captured_value),
             state.since_capture,

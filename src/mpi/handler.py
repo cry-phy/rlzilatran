@@ -1,16 +1,20 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dynaconf import Dynaconf
+
 from enum import IntEnum, auto
-from functools import wraps
-import logging
-import sys
-from time import time
-import traceback
-
-
-from dynaconf import Dynaconf
 from game.utils import Board
+from functools import wraps
 from mpi4py import MPI
-import torch
+from time import time
 import numpy as np
+import traceback
+import logging
+import torch
+import sys
+
 
 logger = logging.getLogger(__name__)
 

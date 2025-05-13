@@ -1,15 +1,19 @@
-from copy import copy
-from tkinter import Event
-from typing import Callable
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from game.game import Game
+    from typing import Callable
+    from tkinter import Event
+
 from agents.base import BaseAgent, Tool
-from game.game import Game
-import logging
-import torch
 from game.utils import Board, MoveFlag
+from mpi.handler import MPIHandler
+from copy import copy
 import functools
 import inspect
-
-from mpi.handler import MPIHandler
+import torch
+import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
 

@@ -1,0 +1,245 @@
+{
+    "agents": {
+        "bacon": 2,
+        "imported_by": [
+            "agents.base",
+            "config",
+            "mpi.processes",
+            "observer.ui"
+        ],
+        "name": "agents",
+        "path": "/home/christof/rlzilatran/src/agents/__init__.py"
+    },
+    "agents.base": {
+        "bacon": 2,
+        "imported_by": [
+            "config",
+            "mpi.processes",
+            "observer.ui"
+        ],
+        "imports": [
+            "agents",
+            "game",
+            "game.game",
+            "game.utils",
+            "mpi",
+            "mpi.handler",
+            "torch"
+        ],
+        "name": "agents.base",
+        "path": "/home/christof/rlzilatran/src/agents/base.py"
+    },
+    "config": {
+        "bacon": 1,
+        "imported_by": [
+            "main.py",
+            "mpi.processes"
+        ],
+        "imports": [
+            "agents",
+            "agents.base",
+            "dynaconf"
+        ],
+        "name": "config",
+        "path": "/home/christof/rlzilatran/src/config.py"
+    },
+    "dynaconf": {
+        "bacon": 2,
+        "imported_by": [
+            "config",
+            "dynaconf",
+            "mpi.handler"
+        ],
+        "imports": [
+            "dynaconf"
+        ],
+        "name": "dynaconf",
+        "path": "/home/christof/.cache/pypoetry/virtualenvs/rlzilatran-IvKlFs6i-py3.10/lib/python3.10/site-packages/dynaconf/__init__.py"
+    },
+    "game": {
+        "bacon": 2,
+        "imported_by": [
+            "agents.base",
+            "game.game",
+            "game.utils",
+            "mpi.handler",
+            "mpi.processes",
+            "observer.ui"
+        ],
+        "name": "game",
+        "path": "/home/christof/rlzilatran/src/game/__init__.py"
+    },
+    "game.game": {
+        "bacon": 2,
+        "imported_by": [
+            "agents.base",
+            "mpi.processes",
+            "observer.ui"
+        ],
+        "imports": [
+            "game",
+            "game.utils",
+            "torch"
+        ],
+        "name": "game.game",
+        "path": "/home/christof/rlzilatran/src/game/game.py"
+    },
+    "game.utils": {
+        "bacon": 2,
+        "imported_by": [
+            "agents.base",
+            "game.game",
+            "mpi.handler",
+            "observer.ui"
+        ],
+        "imports": [
+            "game",
+            "numpy",
+            "torch"
+        ],
+        "name": "game.utils",
+        "path": "/home/christof/rlzilatran/src/game/utils.py"
+    },
+    "main.py": {
+        "bacon": 0,
+        "imports": [
+            "config",
+            "mpi",
+            "mpi.handler",
+            "mpi.processes",
+            "mpi4py",
+            "mpi4py.MPI"
+        ],
+        "name": "main.py",
+        "path": "main.py"
+    },
+    "mpi": {
+        "bacon": 1,
+        "imported_by": [
+            "agents.base",
+            "main.py",
+            "mpi.processes",
+            "observer.ui"
+        ],
+        "name": "mpi",
+        "path": "/home/christof/rlzilatran/src/mpi/__init__.py"
+    },
+    "mpi.handler": {
+        "bacon": 1,
+        "imported_by": [
+            "agents.base",
+            "main.py",
+            "mpi.processes",
+            "observer.ui"
+        ],
+        "imports": [
+            "dynaconf",
+            "game",
+            "game.utils",
+            "mpi4py",
+            "mpi4py.MPI",
+            "numpy",
+            "torch"
+        ],
+        "name": "mpi.handler",
+        "path": "/home/christof/rlzilatran/src/mpi/handler.py"
+    },
+    "mpi.processes": {
+        "bacon": 1,
+        "imported_by": [
+            "main.py"
+        ],
+        "imports": [
+            "agents",
+            "agents.base",
+            "config",
+            "game",
+            "game.game",
+            "mpi",
+            "mpi.handler",
+            "observer",
+            "observer.ui",
+            "torch"
+        ],
+        "name": "mpi.processes",
+        "path": "/home/christof/rlzilatran/src/mpi/processes.py"
+    },
+    "mpi4py": {
+        "bacon": 1,
+        "imported_by": [
+            "main.py",
+            "mpi.handler"
+        ],
+        "name": "mpi4py",
+        "path": "/home/christof/.cache/pypoetry/virtualenvs/rlzilatran-IvKlFs6i-py3.10/lib/python3.10/site-packages/mpi4py/__init__.py"
+    },
+    "mpi4py.MPI": {
+        "bacon": 1,
+        "imported_by": [
+            "main.py",
+            "mpi.handler"
+        ],
+        "name": "mpi4py.MPI",
+        "path": "/home/christof/.cache/pypoetry/virtualenvs/rlzilatran-IvKlFs6i-py3.10/lib/python3.10/site-packages/mpi4py/MPI.cpython-310-x86_64-linux-gnu.so"
+    },
+    "numpy": {
+        "bacon": 2,
+        "imported_by": [
+            "game.utils",
+            "mpi.handler",
+            "numpy",
+            "torch"
+        ],
+        "imports": [
+            "numpy"
+        ],
+        "name": "numpy",
+        "path": "/home/christof/.cache/pypoetry/virtualenvs/rlzilatran-IvKlFs6i-py3.10/lib/python3.10/site-packages/numpy/__init__.py"
+    },
+    "observer": {
+        "bacon": 2,
+        "imported_by": [
+            "mpi.processes",
+            "observer.ui"
+        ],
+        "name": "observer",
+        "path": "/home/christof/rlzilatran/src/observer/__init__.py"
+    },
+    "observer.ui": {
+        "bacon": 2,
+        "imported_by": [
+            "mpi.processes"
+        ],
+        "imports": [
+            "agents",
+            "agents.base",
+            "game",
+            "game.game",
+            "game.utils",
+            "mpi",
+            "mpi.handler",
+            "observer",
+            "torch"
+        ],
+        "name": "observer.ui",
+        "path": "/home/christof/rlzilatran/src/observer/ui.py"
+    },
+    "torch": {
+        "bacon": 2,
+        "imported_by": [
+            "agents.base",
+            "game.game",
+            "game.utils",
+            "mpi.handler",
+            "mpi.processes",
+            "observer.ui",
+            "torch"
+        ],
+        "imports": [
+            "numpy",
+            "torch"
+        ],
+        "name": "torch",
+        "path": "/home/christof/.cache/pypoetry/virtualenvs/rlzilatran-IvKlFs6i-py3.10/lib/python3.10/site-packages/torch/__init__.py"
+    }
+}

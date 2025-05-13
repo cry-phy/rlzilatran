@@ -1,4 +1,9 @@
-import logging
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agents.base import BaseAgent
+
 from typing import cast
 
 import torch
@@ -6,7 +11,8 @@ from config import get_config
 from game.game import Game
 from mpi.handler import MPIHandler, gracefull_error
 from observer.ui import BaseObserver, UIObserver
-from agents.base import BaseAgent
+
+import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -98,7 +104,7 @@ class TrainingProcess(MPIProcess):
 
 
 class InferenceProcess(MPIProcess):
-    """Initialize process running Inference of the CNN."""
+    """Initialize process running Inference of the CNN.t.detach()"""
 
     # Setup CNN
 
