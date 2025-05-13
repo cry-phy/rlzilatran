@@ -130,7 +130,7 @@ class MPIHandler:
 
         # Get world comm ranks of inference ranks
         is_inference = self._nrank == self.INFERENCE_NRANK
-        print(f"Rank {self._wrank} is inference: {is_inference}")
+        logger.debug(f"Rank {self._wrank} is inference: {is_inference}")
         are_inference = self.wcomm.allgather(is_inference)
         self.inference_wranks = torch.where(
             torch.tensor(are_inference, dtype=torch.bool)
@@ -154,7 +154,7 @@ class MPIHandler:
             )
 
         if self._wrank == 0:
-            print(
+            logger.info(
                 f"Started MPI with wcomm with {self._wsize} processes, inference on {self.inference_wranks}"
             )
         self._init = True

@@ -1,5 +1,5 @@
 from time import time
-from typing import Callable
+from typing import Callable, cast
 from game.game import Game
 from agents.base import BaseAgent
 from game.utils import Board
@@ -136,10 +136,30 @@ class MinimaxAgent(BaseAgent):
         return x1, y1, x2, y2, flag
 
     def generate_move_tensor(self) -> None:
-        """Generate move tensor."""
+        """Generate move tensor for the subset of tasks for this rank."""
+        move_list = self._game.all_moves()
+        # allocate moves to specific ranks
+        all_moves = torch.stack(move_list).T
+        num_tasks = len(all_moves)
+        min_tasks = num_tasks // cast(int, self.mpi._osize)
+        remainder = num_tasks % cast(int, self.mpi._osize)
+        tasks_per_rank = torch.full((cast(int, self.mpi._osize),), min_tasks)
+        tasks_per_rank[:remainder] += 1
+        end_indices_per_rank = torch.cumsum(tasks_per_rank, dim=0)
+        start_indices_per_rank = end_indices_per_rank - tasks_per_rank
+
+        # Generate which moves are evaluated on this rank
+        start_index = start_indices_per_rank[self.mpi._orank]
+        end_index = end_indices_per_rank[self.mpi._orank]
+        task_moves = all_moves[start_index:end_index]
+
+        logger.debug("Running moves %i:%i.", start_index, end_index)
+
+        # Evaluate
         move_valuations = torch.zeros(Board.move_tensor_shape)
         start_time = time()
-        for x, y, index in zip(*self._game.all_moves(), strict=True):
+        self.counter = 1
+        for x, y, index in task_moves:
             game: Game = self._game.copy()
             game.make_move(x, y, *Board.move_from_index(index))
             value = self.minimax(1, -1e9, 1e9, game)
