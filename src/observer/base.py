@@ -33,7 +33,7 @@ class BaseObserver:
         agent1 = agent_cls1(game)
         agent2 = agent_cls2(game)
         agent1.player = True
-        agent2.player = agent1.player
+        agent2.player = not agent1.player
         return cls(game, (agent1, agent2))
 
     def current_agent(self) -> BaseAgent:

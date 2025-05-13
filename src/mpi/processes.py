@@ -1,4 +1,7 @@
 import logging
+from typing import cast
+
+import torch
 from config import get_config
 from game.game import Game
 from mpi.handler import MPIHandler, gracefull_error
@@ -130,10 +133,8 @@ class AgentProcess(MPIProcess):
         super().__init__()
         self.observer = None
         self.game = game
-        self.agents: tuple[BaseAgent, BaseAgent] = (
-            agent_cls1(game),
-            agent_cls2(game),
-        )
+        temp_obs = BaseObserver.any_vs_any(game, agent_cls1, agent_cls2)
+        self.agents: tuple[BaseAgent, BaseAgent] = temp_obs.agents
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
@@ -224,7 +225,9 @@ class UIObserverProcess(MPIProcess):
     ) -> None:
         """Set up observer and distribute game anda agents."""
         super().__init__()
-        self.obs = UIObserver.any_vs_any(game, agent_cls1, agent_cls2)
+        self.obs: UIObserver = cast(
+            UIObserver, UIObserver.any_vs_any(game, agent_cls1, agent_cls2)
+        )
         if self.mpi._osize is not None:
             self.osize = self.mpi._osize
         else:
@@ -250,6 +253,8 @@ class UIObserverProcess(MPIProcess):
             sum_move_tensor = current_agent.reduce_move_tensors()
             sum_value = current_agent.reduce_values()
             move_tensor = sum_move_tensor / self.osize
+            torch.save(move_tensor, "temp/move_tensor1.txt")
+            self.obs.draw_move_tensor(move_tensor)
             if sum_value is None:
                 raise ValueError("Value should not be None on OBSERVER_ORANK")
             else:
@@ -258,7 +263,6 @@ class UIObserverProcess(MPIProcess):
             logger.debug("Sending Move.")
             bcast_move = current_agent.bcast_move(move)
             current_agent.make_move(*bcast_move)
-            print(self.obs.game.state, current_agent._game.state)
             logger.info("Move Executed: %s", bcast_move)
             self.obs.redraw_board()
             self.obs.add_data(state_tensor, value, move_tensor)
@@ -270,7 +274,3 @@ class UIObserverProcess(MPIProcess):
             self.obs.wait(self.main_step)
         else:
             logger.info("Game over.")
-            print(current_agent._game.state.check_capture_call_termination())
-            print(current_agent._game.state.check_capture_termination())
-            print(current_agent._game.state.check_half_empty())
-            print(current_agent._game.state.check_captured_value_termination())

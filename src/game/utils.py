@@ -149,7 +149,6 @@ class __BoardMaster:
             * self._initial_piece_dictionary[piece].shape[1]
             for piece in self.pieces
         ]
-        print("SUMMATION", total_values_piece)
         return sum(total_values_piece)
 
     def convert_dict_list(self, piece_any_dict) -> list[Any]:

@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, cast
 from agents.base import BaseAgent
 from game.game import Game
 from game.state import State
@@ -14,22 +14,34 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 
 
+def bwr_colormap(values: torch.Tensor, eps: float = 1e-8) -> list[str]:
+    """BWR cmap to #RRGGBB hex codes."""
+    hex_colors = []
+
+    for v in values:
+        mapped_value = (torch.tanh(v) + 1) / 2
+        if mapped_value <= 0.5:
+            blue_mapped = mapped_value * 2
+            red = blue_mapped
+            green = blue_mapped
+            blue = 1
+        else:
+            red_mapped = (mapped_value - 0.5) * 2
+            red = 1
+            green = 1 - red_mapped
+            blue = 1 - red_mapped
+        hex_colors.append(
+            "#{:02X}{:02X}{:02X}".format(
+                int(abs(red) * 255),
+                int(abs(green) * 255),
+                int(abs(blue) * 255),
+            )
+        )
+    return hex_colors
+
+
 class UIObserver(BaseObserver):
     """Game UI for debugging and later play."""
-
-    @classmethod
-    def any_vs_any(
-        cls,
-        game: Game,
-        agent_cls1: type[BaseAgent],
-        agent_cls2: type[BaseAgent],
-    ) -> "UIObserver":
-        """Pit two agents against each other."""
-        agent1 = agent_cls1(game)
-        agent2 = agent_cls2(game)
-        agent1.player = True
-        agent2.player = agent1.player
-        return cls(game, (agent1, agent2))
 
     def __init__(self, game: Game, agents: tuple[BaseAgent, BaseAgent]) -> None:
         """Initialize window."""
@@ -39,6 +51,8 @@ class UIObserver(BaseObserver):
 
         self.selected_positions: list[tuple[int, int]] = []
         self.possible_moves: torch.Tensor = torch.empty(0, 2)
+        self.move_tensor: torch.Tensor = torch.zeros(Board.move_tensor_shape)
+        self.target_values: torch.Tensor | None = None
 
         # --- Menu Bar ---
         self.menubar = Menu(self.root)
@@ -235,7 +249,6 @@ class UIObserver(BaseObserver):
     def draw_pieces(self) -> None:
         """Draw pieces."""
         current_state = self.game.state.state.clone()
-        print(current_state)
         for piece in Board.pieces:
             piece_layer = (
                 current_state[Board.layer_from_piece(piece)]
@@ -255,7 +268,6 @@ class UIObserver(BaseObserver):
 
     def draw_selected(self) -> None:
         """Draw selected square."""
-        print(self.selected_positions)
         if self.selected_positions:
             for position in self.selected_positions:
                 self.canvas.create_rectangle(
@@ -270,6 +282,27 @@ class UIObserver(BaseObserver):
                         outline="black",
                         fill="orchid1",
                     )
+
+    def draw_move_tensor(self, move_tensor: torch.Tensor | None = None):
+        """Shade the squares according to the given/previous move tensor."""
+        if move_tensor is not None:
+            self.move_tensor = move_tensor - move_tensor.min()
+            self.target_values = self.move_tensor[:, :, :-1].sum(axis=(0, 1))
+            self.target_colors = bwr_colormap(self.target_values)
+        if self.target_values is not None:
+            indices = torch.arange(len(self.target_values))
+            xs, ys, _ = Board.move_from_index(indices)
+            for x, y, c in zip(
+                cast(torch.Tensor, xs),
+                cast(torch.Tensor, ys),
+                self.target_colors,
+                strict=True,
+            ):
+                self.canvas.create_rectangle(
+                    *self._get_cell_boundaries(int(x), int(y)),
+                    outline="black",
+                    fill=c,
+                )
 
     def on_save(self) -> None:
         """Save current game as json."""
@@ -319,12 +352,13 @@ class UIObserver(BaseObserver):
     def update_values(self) -> None:
         """Update common values."""
         self.capture_var.set(
-            f"{self.game.state.captured_value[0]} {self.game.state.captured_value[0]}"
+            f"{self.game.state.captured_value[0]} {self.game.state.captured_value[1]}"
         )
 
     def draw_board(self) -> None:
         """Wrap common draw functions."""
         self.draw_grid()
+        self.draw_move_tensor()
         self.draw_selected()
         self.draw_pieces()
         self.draw_grid_coords()

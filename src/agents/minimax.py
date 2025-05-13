@@ -1,8 +1,12 @@
+from time import time
 from typing import Callable
 from game.game import Game
 from agents.base import BaseAgent
 from game.utils import Board
 import torch
+import logging
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class MinimaxAgent(BaseAgent):
@@ -11,19 +15,20 @@ class MinimaxAgent(BaseAgent):
     def __init__(self, game: Game) -> None:
         """Initialize Minimax agent."""
         super().__init__(game)
-        self._depth: int = 3
+        self._depth: int = 5
         self._weights: dict[str, float] = {
             "material": 0,
-            "capture": 5,
+            "capture": 1,
             "mobility": 0,
-            "win_lose": 100,
+            "win_lose": 10,
         }
-        self._metrics: dict[str, Callable[[Game], float]] = {
-            "material": self.mobility,
+        self._metrics: dict[str, Callable[[Game], float | torch.Tensor]] = {
+            "material": self.material,
             "capture": self.capture,
             "mobility": self.mobility,
             "win_lose": self.win_lose,
         }
+        self.counter = 0
 
     @classmethod
     def new(cls, game: Game, depth: int) -> "MinimaxAgent":
@@ -48,7 +53,10 @@ class MinimaxAgent(BaseAgent):
 
     def capture(self, game: Game) -> float:
         """Get Capture of current player."""
-        return game.state.captured_value[self._player]
+        return (
+            game.state.captured_value[not game.state.player]
+            - game.state.captured_value[game.state.player]
+        )
 
     def mobility(self, game: Game) -> torch.Tensor:
         """Get mobility score of current player."""
@@ -57,7 +65,7 @@ class MinimaxAgent(BaseAgent):
     def win_lose(self, game: Game) -> float:
         """Game score if game state is terminal."""
         if game.game_over():
-            if game.winner() == self._player:
+            if game.winner() == game.state.player:
                 return 1
             else:
                 return -1
@@ -71,29 +79,40 @@ class MinimaxAgent(BaseAgent):
             valuations[index] = self._weights[key] * self._metrics[key](game)
         return valuations.sum()
 
-    def minimax(self, depth: int, game: Game) -> torch.Tensor:
-        """Actual minimax algorithm in recursion format."""
-        if depth >= self._depth or self._game.game_over():
+    def minimax(
+        self, depth: int, alpha: float, beta: float, game: Game
+    ) -> torch.Tensor:
+        """Depth-limited minimax with alpha beta pruning.
+
+        Returns a single-element tensor with the best value for the current player.
+        """
+        self.counter += 1
+
+        if depth >= self._depth or game.game_over():
             return self.single_state_valuation(game)
 
-        state_value: torch.Tensor = torch.tensor([0], dtype=torch.float32)
-        if self._player != self._game.state.player:
-            best: float = -1e6
+        if game.state.player == self._player:
+            value = -1e9
             for x, y, index in zip(*game.all_moves(), strict=True):
-                new_game: Game = game.copy()
+                new_game = game.copy()
                 new_game.make_move(x, y, *Board.move_from_index(index))
-                val = self.minimax(depth + 1, new_game)
-                best = max(best, int(val))
-            state_value[0] = best
+                child_val = float(self.minimax(depth + 1, alpha, beta, new_game))
+                value = max(value, child_val)
+                alpha = max(alpha, value)
+                if alpha >= beta:
+                    break
+            return torch.tensor([value], dtype=torch.float32)
         else:
-            best: float = 1e6
+            value = 1e9
             for x, y, index in zip(*game.all_moves(), strict=True):
-                new_game: Game = game.copy()
+                new_game = game.copy()
                 new_game.make_move(x, y, *Board.move_from_index(index))
-                val = self.minimax(depth + 1, new_game)
-                best = min(best, int(val))
-            state_value[0] = best
-        return state_value
+                child_val = float(self.minimax(depth + 1, alpha, beta, new_game))
+                value = min(value, child_val)
+                beta = min(beta, value)
+                if beta <= alpha:
+                    break
+            return torch.tensor([value], dtype=torch.float32)
 
     # -- MPI compatability --
     def generate_move(
@@ -106,9 +125,11 @@ class MinimaxAgent(BaseAgent):
         int | torch.Tensor,
     ]:
         """Generate a move for the current game."""
-        move_propabilities = move_tensor.flatten() / move_tensor.sum()
+        shifted_flat = move_tensor.flatten() - move_tensor.min()
+        move_propabilities = shifted_flat / shifted_flat.sum()
         move_flat_index = torch.multinomial(move_propabilities, 1)
         move_indices = torch.unravel_index(move_flat_index, Board.move_tensor_shape)
+        logger.debug("Suggesting move: %s", move_indices)
         x1: torch.Tensor = move_indices[0]
         y1: torch.Tensor = move_indices[1]
         x2, y2, flag = Board.move_from_index(move_indices[2])
@@ -117,12 +138,19 @@ class MinimaxAgent(BaseAgent):
     def generate_move_tensor(self) -> None:
         """Generate move tensor."""
         move_valuations = torch.zeros(Board.move_tensor_shape)
+        start_time = time()
         for x, y, index in zip(*self._game.all_moves(), strict=True):
             game: Game = self._game.copy()
             game.make_move(x, y, *Board.move_from_index(index))
-            value = self.minimax(1, game)
-            move_valuations[x, y, index] = value
+            value = self.minimax(1, -1e9, 1e9, game)
+            move_valuations[x, y, index] = value + 1e-9
+        runtime = time() - start_time
+        logger.info(
+            "Ran through %i Nodes in %fs, average: %fms",
+            self.counter,
+            runtime,
+            runtime / self.counter * 1e6,
+        )
+        self.counter = 0
         self._value = float(torch.max(move_valuations))
-        print("single", move_valuations[torch.where(move_valuations != 0)])
         self._move_tensor = move_valuations + torch.min(move_valuations)
-        print(torch.min(self._move_tensor), torch.max(self._move_tensor))

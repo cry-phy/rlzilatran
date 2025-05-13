@@ -63,7 +63,7 @@ class Game:
         y1: int | torch.Tensor,
         x2: int | torch.Tensor,
         y2: int | torch.Tensor,
-        flag: int,
+        flag: int | torch.Tensor,
     ) -> None:
         """Make move."""
         logger.debug(

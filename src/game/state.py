@@ -1,4 +1,4 @@
-from copy import deepcopy
+from copy import copy
 from game.utils import Board, MoveFlag
 import torch
 import json
@@ -115,7 +115,7 @@ class State:
         return cls(
             state.state,
             state.player,
-            deepcopy(state.captured_value),
+            copy(state.captured_value),
             state.since_capture,
         )
 
@@ -240,7 +240,7 @@ class State:
 
     def player_material(self, player: bool) -> float:
         """Get the material of player."""
-        x, y = torch.where(self.get_player_mask(True))
+        x, y = torch.where(self.get_player_mask(player))
         positions: torch.Tensor = torch.stack((x, y), dim=1).T
         layer, _ = torch.where(self.tensor_reference[:, positions[0], positions[1]])
         value: torch.Tensor = Board.value_from_layer(layer)
@@ -308,10 +308,10 @@ class State:
         y1: int | torch.Tensor,
         x2: int | torch.Tensor,
         y2: int | torch.Tensor,
-        flag: int,
+        flag: int | torch.Tensor,
     ) -> None:
         """Make move corresponding to index."""
-        match flag:
+        match int(flag):
             case int(MoveFlag.STANDARD):
                 self.standard_move(x1, y1, x2, y2)
             case int(MoveFlag.CAPTURE_CALL):
@@ -320,6 +320,8 @@ class State:
                 self.resign()
             case int(MoveFlag.DRAW_OFFER):
                 self.offer_draw()
+            case _:
+                raise RuntimeError(f"Flag {flag} does not exist.")
         self._player = not self._player
 
     def standard_move(

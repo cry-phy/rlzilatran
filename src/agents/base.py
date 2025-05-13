@@ -99,7 +99,6 @@ class BaseAgent:
 
     def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
         """Make specific move."""
-        print("Agent_mak move")
         self._game.make_move(x1, y1, x2, y2, flag)
         self.move_flag = MoveFlag.STANDARD
 

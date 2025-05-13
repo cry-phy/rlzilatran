@@ -174,6 +174,8 @@ class HumanAgent(BaseAgent):
         else:
             self._value = -1
         self._move_tensor = torch.zeros(Board.move_tensor_shape)
+        x1, y1, x2, y2, _ = self._move
+        self._move_tensor[x1, y1, Board.index_from_move(x2, y2)]
 
     # Overwrite MPI interactions since communication is not necessary
     def reduce_move_tensors(self) -> torch.Tensor:
