@@ -1,10 +1,29 @@
-import torch
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Any, Callable, Iterable
+
+from enum import IntEnum, auto
 import numpy as np
-from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from copy import copy
+import torch
 import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+class MoveFlag(IntEnum):
+    """Encodes actions outside the board to flags for moves."""
+
+    STANDARD = auto()
+    CAPTURE_CALL = auto()
+
+    # The following are only for human players for now as
+    # opposed to the computer they have limited time.
+    RESIGN = auto()
+    DRAW_OFFER = auto()
+
 
 if TYPE_CHECKING:
     from game.state import State
@@ -92,7 +111,7 @@ class __BoardMaster:
         self.NUM_LAYERS = 2 * len(self._pieces)
         self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
         self.MAX_MOVES = self.x * self.y + 1
-        self.HISTORY_LENGTH = 8
+        self.HISTORY_LENGTH = 4
         self.CHANNEL_NUMBER = (len(self._pieces) * 2) * self.HISTORY_LENGTH + 4
         self.NUM_LEAVES = 256
         self._capture_clock = 7
@@ -131,7 +150,8 @@ class __BoardMaster:
     def generate_max_capture_value(self) -> float:
         """Pregenerate sum of all captures."""
         total_values_piece = [
-            self._piece_value_dict[piece] * len(self._initial_piece_dictionary[piece])
+            self._piece_value_dict[piece]
+            * self._initial_piece_dictionary[piece].shape[1]
             for piece in self.pieces
         ]
         return sum(total_values_piece)
@@ -146,8 +166,24 @@ class __BoardMaster:
     def index_from_move(self, x, y) -> int:
         return y * self.x + x
 
-    def move_from_index(self, index: int) -> tuple[int, int]:
-        return index % self.x, index // self.x
+    def move_from_index(
+        self, index: int | torch.Tensor
+    ) -> tuple[int | torch.Tensor, int | torch.Tensor, int | torch.Tensor]:
+        x = index % self.x
+        y = index // self.x
+        if torch.is_tensor(index):
+            flag = torch.where(
+                index == 33,
+                torch.tensor(int(MoveFlag.CAPTURE_CALL)),
+                torch.tensor(int(MoveFlag.STANDARD)),
+            )
+        else:
+            flag = (
+                int(MoveFlag.STANDARD)
+                if not index == 33
+                else int(MoveFlag.CAPTURE_CALL)
+            )
+        return x, y, flag
 
     def generate_p_moves(self, x: int, y: int, state: "State") -> torch.Tensor:
         """Pregenerate moves for Private."""
@@ -242,7 +278,7 @@ class __BoardMaster:
     @property
     def board_size(self) -> tuple[int, int]:
         """Allow access to the board size."""
-        return deepcopy(self.BOARD_SIZE)
+        return copy(self.BOARD_SIZE)
 
     @property
     def x(self) -> int:
@@ -276,7 +312,7 @@ class __BoardMaster:
             and y < (1 + int(player)) * Board.board_size[1] // 2
         )
 
-    def half_indices(self, y: int) -> tuple[int, int]:
+    def half_indices(self, y: int | torch.Tensor) -> tuple[int, int]:
         """Get indices equating to player layers."""
         jbool = not (y <= self.num_pieces)
         j1 = int(jbool) * self.num_pieces

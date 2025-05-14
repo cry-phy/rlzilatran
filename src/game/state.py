@@ -1,4 +1,5 @@
-from game.utils import Board
+from copy import copy
+from game.utils import Board, MoveFlag
 import torch
 import json
 import logging
@@ -19,7 +20,7 @@ class State:
         self,
         tensor: torch.Tensor,
         player: bool = True,
-        captured_value: list[float] = [0, 0],
+        captured_value: list[float] | None = None,
         since_capture: int = 0,
         since_capture_call: int = 0,
     ) -> None:
@@ -27,9 +28,13 @@ class State:
 
         Should not be used directly! Use factory Methods instead.
         """
+        if captured_value is None:
+            captured_value = [0, 0]
+
         self._tensor: torch.Tensor = tensor
         self._player: bool = player
         self._captured_value: list[float] = captured_value
+        self._active_capture_call: bool = False
         self._since_capture: int = since_capture
         self._since_capture_call: int = since_capture_call
         self._board_size: tuple[int, int] = Board.board_size
@@ -46,7 +51,7 @@ class State:
 
     @property
     def captured_value(self) -> list[float]:
-        """Value of captured pieces by player False."""
+        """Value of captured pieces."""
         return self._captured_value
 
     @property
@@ -107,7 +112,12 @@ class State:
     @classmethod
     def from_state(cls, state: "State") -> "State":
         """Create copy from state for copy operations."""
-        return cls(state.state, state.player, state.captured_value, state.since_capture)
+        return cls(
+            state.state.clone(),
+            state.player,
+            copy(state.captured_value),
+            state.since_capture,
+        )
 
     # --- Dunder Methods ---
     def __eq__(self, other: "State") -> bool:
@@ -230,7 +240,7 @@ class State:
 
     def player_material(self, player: bool) -> float:
         """Get the material of player."""
-        x, y = torch.where(self.get_player_mask(True))
+        x, y = torch.where(self.get_player_mask(player))
         positions: torch.Tensor = torch.stack((x, y), dim=1).T
         layer, _ = torch.where(self.tensor_reference[:, positions[0], positions[1]])
         value: torch.Tensor = Board.value_from_layer(layer)
@@ -261,7 +271,7 @@ class State:
                 :,
                 int(not self._player) * Board.num_pieces : (1 + int(not self._player))
                 * Board.num_pieces,
-            ].to(bool)
+            ].to(dtype=torch.bool)
         )
 
     def check_captured_value_termination(self) -> bool:
@@ -292,18 +302,54 @@ class State:
         )
 
     # --- Board Manipulations ---
-    def make_move(self, x1: int, y1: int, x2: int, y2: int) -> None:
+    def make_move(
+        self,
+        x1: int | torch.Tensor,
+        y1: int | torch.Tensor,
+        x2: int | torch.Tensor,
+        y2: int | torch.Tensor,
+        flag: int | torch.Tensor,
+    ) -> None:
         """Make move corresponding to index."""
+        match int(flag):
+            case int(MoveFlag.STANDARD):
+                self.standard_move(x1, y1, x2, y2)
+            case int(MoveFlag.CAPTURE_CALL):
+                self.make_capture_call()
+            case int(MoveFlag.RESIGN):
+                self.resign()
+            case int(MoveFlag.DRAW_OFFER):
+                self.offer_draw()
+            case _:
+                raise RuntimeError(f"Flag {flag} does not exist.")
+        self._player = not self._player
+
+    def standard_move(
+        self,
+        x1: int | torch.Tensor,
+        y1: int | torch.Tensor,
+        x2: int | torch.Tensor,
+        y2: int | torch.Tensor,
+    ) -> None:
+        """Move a piece to another square."""
+        # Capture logic handling.
         capture_layer: torch.Tensor = torch.where(self._tensor[:, x2, y2])[0]
         if capture_layer.nelement() != 0:
             capture_value = Board.value_from_layer(capture_layer)
-            self._since_capture += 1
             logger.debug(
                 "Capturing %s with value %i",
                 Board.piece_from_layer(capture_layer),
                 Board.value_from_layer(capture_layer),
             )
             self._captured_value[int(self._player)] += float(capture_value)
+            self._active_capture_call = False
+            self._since_capture_call = 0
+        else:
+            self._since_capture += 1
+            if self._active_capture_call:
+                self.since_capture_call += 1
+
+        # Moving pieces
         i1, i2 = Board.half_indices(y1)
         j1, j2 = Board.half_indices(y2)
         logger.debug(
@@ -313,11 +359,22 @@ class State:
         )
         self._tensor[j1:j2, x2, y2] = self._tensor[i1:i2, x1, y1]
         self._tensor[i1:i2, x1, y1] = 0
-        self._player = not self._player
+
+    def make_capture_call(self) -> None:
+        """Set flags for capture call."""
+        self._active_capture_call = True
+
+    def resign(self) -> None:
+        """Resign, ending game immidatly."""
+        raise NotImplementedError
+
+    def offer_draw(self) -> None:
+        """Set/resolve draw offer flag."""
+        raise NotImplementedError
 
     def add_piece(self, x: int, y: int, piece: str) -> None:
         """Add Piece to certain layer."""
-        layer: torch.Tensor = Board.layer_from_piece(piece)
+        layer: int = Board.layer_from_piece(piece)
         i1, _ = Board.half_indices(y)
         self._tensor[i1 + layer, x, y] = 1
 
@@ -359,3 +416,11 @@ class State:
             self.since_capture_channel(),
             self.since_capture_call_channel(),
         ]
+
+    def check_flag(self, flag: MoveFlag) -> bool:
+        """Check move flag for applicability."""
+        match flag:
+            case MoveFlag.CAPTURE_CALL:
+                return self.since_capture >= 7
+            case _:
+                return True

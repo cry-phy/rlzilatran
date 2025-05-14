@@ -1,11 +1,18 @@
-import logging
+from __future__ import annotations
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from agents.base import BaseAgent
 
+from typing import cast
+
+import torch
 from config import get_config
 from game.game import Game
 from mpi.handler import MPIHandler, gracefull_error
 from observer.ui import BaseObserver, UIObserver
-from agents.base import BaseAgent
+
+import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -97,7 +104,7 @@ class TrainingProcess(MPIProcess):
 
 
 class InferenceProcess(MPIProcess):
-    """Initialize process running Inference of the CNN."""
+    """Initialize process running Inference of the CNN.t.detach()"""
 
     # Setup CNN
 
@@ -132,10 +139,8 @@ class AgentProcess(MPIProcess):
         super().__init__()
         self.observer = None
         self.game = game
-        self.agents: tuple[BaseAgent, BaseAgent] = (
-            agent_cls1(game),
-            agent_cls2(game),
-        )
+        temp_obs = BaseObserver.any_vs_any(game, agent_cls1, agent_cls2)
+        self.agents: tuple[BaseAgent, BaseAgent] = temp_obs.agents
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
@@ -147,10 +152,14 @@ class AgentProcess(MPIProcess):
         """Agent Control Flow."""
         current_agent = self.agents[self.game.state.player]
         current_agent.generate_move_tensor()
+        logger.debug("Generated Move Tensor.")
         _ = current_agent.reduce_move_tensors()
+        _ = current_agent.reduce_values()
         move = None
+        logger.debug("Awaiting Move")
         bcast_move = current_agent.bcast_move(move)
         current_agent.make_move(*bcast_move)
+        logger.info("Move Executed: %s", bcast_move)
 
 
 class ObserverProcess(MPIProcess):
@@ -185,6 +194,7 @@ class ObserverProcess(MPIProcess):
         state_tensor = self.obs.game.state_tensor
         current_agent = self.obs.agents[self.obs.game.state.player]
         current_agent.generate_move_tensor()
+        logger.debug("Generated Move")
         sum_move_tensor = current_agent.reduce_move_tensors()
         sum_value = current_agent.reduce_values()
         move_tensor = sum_move_tensor / self.osize
@@ -193,8 +203,10 @@ class ObserverProcess(MPIProcess):
         else:
             value = sum_value / self.osize
         move = current_agent.generate_move(move_tensor)
+        logger.debug("Sending Move.")
         bcast_move = current_agent.bcast_move(move)
         current_agent.make_move(*bcast_move)
+        logger.info("Move Executed: %s", bcast_move)
         self.obs.add_data(state_tensor, value, move_tensor)
 
     @gracefull_error
@@ -219,7 +231,9 @@ class UIObserverProcess(MPIProcess):
     ) -> None:
         """Set up observer and distribute game anda agents."""
         super().__init__()
-        self.obs = UIObserver.any_vs_any(game, agent_cls1, agent_cls2)
+        self.obs: UIObserver = cast(
+            UIObserver, UIObserver.any_vs_any(game, agent_cls1, agent_cls2)
+        )
         if self.mpi._osize is not None:
             self.osize = self.mpi._osize
         else:
@@ -241,21 +255,27 @@ class UIObserverProcess(MPIProcess):
 
         if current_agent.move_ready:
             current_agent.generate_move_tensor()
+            logger.debug("Generated Move")
             sum_move_tensor = current_agent.reduce_move_tensors()
             sum_value = current_agent.reduce_values()
             move_tensor = sum_move_tensor / self.osize
+            torch.save(move_tensor, "temp/move_tensor1.txt")
+            self.obs.draw_move_tensor(move_tensor)
             if sum_value is None:
                 raise ValueError("Value should not be None on OBSERVER_ORANK")
             else:
                 value = sum_value / self.osize
             move = current_agent.generate_move(move_tensor)
+            logger.debug("Sending Move.")
             bcast_move = current_agent.bcast_move(move)
             current_agent.make_move(*bcast_move)
+            logger.info("Move Executed: %s", bcast_move)
             self.obs.redraw_board()
             self.obs.add_data(state_tensor, value, move_tensor)
 
             if current_agent.clickable:
                 self.obs.post_clickable_input()
+
         if not self.obs.game.game_over():
             self.obs.wait(self.main_step)
         else:

@@ -7,11 +7,12 @@ from mpi.handler import MPIHandler
 from mpi.processes import get_process
 
 
-def setup_logging(rank: int = 0, level: int = logging.DEBUG):
+def setup_logging(rank: int, level: int):
     """Set root logger.
 
-    Configure the root logger to write to stdout,
-    embedding a rank placeholder for future MPI use.
+    Configure the root logger to write to stdout via mpi buffer.
+    The mpi buffer makes this truly usable since the buffer is block buffered
+    instead of line buffered allowing fast writes.
     """
     print(f"Setting up logging ({level}) on Rank: {rank}")
     fmt = "%(asctime)s [rank:%(rank)d] %(levelname)s %(name)s: %(message)s"
@@ -37,7 +38,7 @@ def main():
     """Run central loop."""
     wcomm = MPI.COMM_WORLD
     wrank = wcomm.Get_rank()
-    setup_logging(wrank, logging.DEBUG)
+    setup_logging(wrank, logging.INFO)
     logger = logging.getLogger(__name__)
     logger.info("Logging initialized.")
 

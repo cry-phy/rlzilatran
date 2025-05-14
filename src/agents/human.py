@@ -1,15 +1,19 @@
-from copy import copy
-from tkinter import Event
-from typing import Callable
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from game.game import Game
+    from typing import Callable
+    from tkinter import Event
+
 from agents.base import BaseAgent, Tool
-from game.game import Game
-import logging
-import torch
-from game.utils import Board
+from game.utils import Board, MoveFlag
+from mpi.handler import MPIHandler
+from copy import copy
 import functools
 import inspect
-
-from mpi.handler import MPIHandler
+import torch
+import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -45,12 +49,14 @@ class DummyAgent(BaseAgent):
     Does not return any usefull data  but is able to act as a fully implemented Agent.
     """
 
-    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+    def generate_move(
+        self, move_tensor: torch.Tensor
+    ) -> tuple[int, int, int, int, int]:
         """Generate a move.
 
         The Human player bypasses the Move selection by only reading on the observer rank.
         """
-        return (-1, -1, -1, -1)
+        raise ValueError("Trying to generate move by DummyAgent.")
 
     def generate_move_tensor(self) -> None:
         """Generate empty move tensor and value.
@@ -101,6 +107,7 @@ class HumanAgent(BaseAgent):
             Tool.FORCE_MOVE: self.tool_force_move,
         }
         self._CELL_SIZE = 80
+        self._move_ready = False
 
     @property
     def cell_size(self):
@@ -110,6 +117,16 @@ class HumanAgent(BaseAgent):
     @cell_size.setter
     def cell_size(self, value):
         self._CELL_SIZE = value
+
+    @property
+    def move_flag(self) -> MoveFlag:
+        """The move_flag property."""
+        return self._move_flag
+
+    @move_flag.setter
+    def move_flag(self, value):
+        self._move_flag = value
+        self.prepare_move(0, 0)
 
     def selected_positions(self) -> list[tuple[int, int]]:
         """Return selected positions. Overriding BaseAgent."""
@@ -139,7 +156,9 @@ class HumanAgent(BaseAgent):
         return super().handle_click(event)
 
     # -- MPI compatability --
-    def generate_move(self, move_tensor: torch.Tensor) -> tuple[int, int, int, int]:
+    def generate_move(
+        self, move_tensor: torch.Tensor
+    ) -> tuple[int, int, int, int, int]:
         """Generate a move.
 
         The Human player bypasses the Move selection by only reading on the observer rank.
@@ -159,6 +178,8 @@ class HumanAgent(BaseAgent):
         else:
             self._value = -1
         self._move_tensor = torch.zeros(Board.move_tensor_shape)
+        x1, y1, x2, y2, _ = self._move
+        self._move_tensor[x1, y1, Board.index_from_move(x2, y2)]
 
     # Overwrite MPI interactions since communication is not necessary
     def reduce_move_tensors(self) -> torch.Tensor:
@@ -250,9 +271,22 @@ class HumanAgent(BaseAgent):
     # -- Make moves --
     def prepare_move(self, x: int, y: int) -> None:
         """Make move to piece."""
-        logger.debug("Setting move and readiness.")
-        self._move = (self._selected_position[0], self._selected_position[1], x, y)
-        self._move_ready = True
+        if self._game.state.check_flag(self.move_flag):
+            logger.debug("Setting move and readiness.")
+            self._move = (
+                self._selected_position[0],
+                self._selected_position[1],
+                x,
+                y,
+                int(self.move_flag),
+            )
+            self._move_ready = True
+        else:
+            logger.debug(
+                "Trying to apply flag %s in this is impossible.",
+                self.move_flag.__repr__,
+            )
+            self.move_flag = MoveFlag.STANDARD
 
     def place_piece(self, x: int, y: int) -> None:
         """Place piece according to current tool on square."""
@@ -262,6 +296,11 @@ class HumanAgent(BaseAgent):
     def remove_piece(self, x: int, y: int) -> None:
         """Clear square."""
         self._game.state.clear_square(x, y)
+
+    def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
+        """Extend make move to reset move_ready flag."""
+        super().make_move(x1, y1, x2, y2, flag)
+        self._move_ready = False
 
     # -- Visuals in GUI --
     def possible_moves(self, x: int, y: int) -> torch.Tensor:

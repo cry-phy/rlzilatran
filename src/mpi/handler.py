@@ -1,13 +1,20 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dynaconf import Dynaconf
+
 from enum import IntEnum, auto
+from game.utils import Board
 from functools import wraps
+from mpi4py import MPI
+from time import time
+import numpy as np
+import traceback
 import logging
+import torch
 import sys
 
-from dynaconf import Dynaconf
-from game.utils import Board
-from mpi4py import MPI
-import torch
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +93,7 @@ class MPIHandler:
             self.TRAINING_WRANK = config.mpi.TRAINING_WRANK
             self.INFERENCE_NRANK = config.mpi.INFERENCE_NRANK
             self.OBSERVER_ORANK = config.mpi.OBSERVER_ORANK
+            self.MPI_SHUTDOWN_WAIT = config.mpi.MPI_SHUTDOWN_WAIT
         else:
             raise ValueError(
                 "Config must be passed to the first time MPIHandler is created."
@@ -126,7 +134,7 @@ class MPIHandler:
 
         # Get world comm ranks of inference ranks
         is_inference = self._nrank == self.INFERENCE_NRANK
-        print(f"Rank {self._wrank} is inference: {is_inference}")
+        logger.debug(f"Rank {self._wrank} is inference: {is_inference}")
         are_inference = self.wcomm.allgather(is_inference)
         self.inference_wranks = torch.where(
             torch.tensor(are_inference, dtype=torch.bool)
@@ -150,7 +158,7 @@ class MPIHandler:
             )
 
         if self._wrank == 0:
-            print(
+            logger.info(
                 f"Started MPI with wcomm with {self._wsize} processes, inference on {self.inference_wranks}"
             )
         self._init = True
@@ -272,8 +280,8 @@ class MPIHandler:
 
     # -- Synchronize Observer and Agents
     def bcast_decided_move(
-        self, move: tuple[int, int, int, int] | None
-    ) -> tuple[int, int, int, int]:
+        self, move: tuple[int, int, int, int, int] | None
+    ) -> tuple[int, int, int, int, int]:
         """Broadcast new game state to all agents."""
         logger.debug("Broadcasting decided move.")
         if self._orank == self.OBSERVER_ORANK:
@@ -286,13 +294,15 @@ class MPIHandler:
 
     def reduce_move_tensors(self, move_tensor: torch.Tensor) -> torch.Tensor:
         """Gather all move suggestion tensors from agents."""
-        move_numpy_sum = np.empty(Board.move_tensor_shape)
+        logger.debug("Reducing move Tensors")
+        move_numpy_sum = np.empty(Board.move_tensor_shape, dtype=np.float32)
         move_numpy = move_tensor.numpy()
         self.ocomm.Reduce(move_numpy, move_numpy_sum, MPI.SUM)
         return torch.from_numpy(move_numpy_sum)
 
     def reduce_values(self, value: float) -> float | None:
         """Reduce values from all ocomm."""
+        logger.debug("Reducing values.")
         red_value: float | None = self.ocomm.reduce(value, MPI.SUM, self.OBSERVER_ORANK)
         return red_value
 
@@ -365,15 +375,14 @@ def send_gracefull_exit():
     mpi = MPIHandler()
     requests = mpi.send_exit()
     mpi.recv_exit()
-    while requests:
+    start_time = time()
+    while requests and time() - start_time <= mpi.MPI_SHUTDOWN_WAIT:
         to_remove: list[MPI.Request] = []
         for req in requests:
             if req.Get_status():
                 to_remove.append(req)
         [requests.remove(req) for req in to_remove]
-    mpi.finalize()
-    logger.debug("Finalized MPI on rank %i", mpi._wrank)
-    sys.exit(1)
+    mpi.wcomm.Abort(1)
 
 
 def handle_gracefull_exit():
@@ -381,8 +390,6 @@ def handle_gracefull_exit():
     mpi = MPIHandler()
     mpi.recv_exit()
     logger.info("Different Rank observed exception. Finalizing.")
-    mpi.finalize()
-    logger.debug("Finalized MPI on rank %i", mpi._wrank)
     sys.exit(1)
 
 
@@ -400,8 +407,11 @@ def gracefull_error(func):
             if mpi.probe_exit():
                 handle_gracefull_exit()
             value = func(*args, **kwargs)
-        except Exception as e:
-            logger.info("In function %s: \n %s", func.__name__, e)
+        except Exception:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            tb_list = traceback.format_exception(exc_type, exc_value, exc_tb)
+            tb_str = "".join(tb_list)
+            logger.info("In function %s: \n %s", func.__name__, tb_str)
             value = None
             send_gracefull_exit()
         return value

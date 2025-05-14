@@ -2,8 +2,9 @@
 TRAINING_WRANK = 0
 INFERENCE_NRANK = 0
 OBSERVER_ORANK = 0
+MPI_SHUTDOWN_WAIT = 10
 
 [obs]
 GUI = true
-agent1 = "HumanAgent"
+agent1 = "MinimaxAgent"
 agent2 = "HumanAgent"
