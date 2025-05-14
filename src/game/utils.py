@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 __all__ = ["Board"]
 
+# from config
 PRIVATE_POSITIONS = torch.tensor(
     [
         (2, 1),
@@ -72,6 +73,7 @@ class __BoardMaster:
     TODO: Extend to read config Files.
     """
 
+    # from config
     _PRIVATE_MOVES = torch.tensor(
         [
             (-1, -1),
@@ -106,23 +108,12 @@ class __BoardMaster:
 
     def __init__(self) -> None:
         """Empty initializer use Factory methods instead."""
+        # from config
         self._pieces = np.array(["P", "S", "O"])
         self.BOARD_SIZE = (4, 8)
-        self.NUM_LAYERS = 2 * len(self._pieces)
-        self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
-        self.MAX_MOVES = self.x * self.y + 1
         self.HISTORY_LENGTH = 4
-        self.CHANNEL_NUMBER = (len(self._pieces) * 2) * self.HISTORY_LENGTH + 4
         self.NUM_LEAVES = 256
         self._capture_clock = 7
-        self._piece_unique_dict: dict[str, int] = {
-            key: i for i, key in enumerate(self._pieces)
-        }
-        self._piece_layer_dict = {
-            "P": 0,
-            "S": 1,
-            "O": 2,
-        }
         self._piece_value_dict = {
             "P": 1,
             "S": 2,
@@ -138,15 +129,30 @@ class __BoardMaster:
             "S": SERGEANT_POSITIONS,
             "O": OFFICER_POSITIONS,
         }
+
+        # Constants
+        self.NUM_LAYERS = 2 * len(self._pieces)
+        self.BOARD_DIMENSIONS = (self.NUM_LAYERS, *self.BOARD_SIZE)
+        self.MAX_MOVES = self.x * self.y + 1
+        self.CHANNEL_NUMBER = (len(self._pieces) * 2) * self.HISTORY_LENGTH + 4
+        self._piece_unique_dict: dict[str, int] = {
+            key: i for i, key in enumerate(self._pieces)
+        }
+        self._piece_layer_dict = {
+            "P": 0,
+            "S": 1,
+            "O": 2,
+        }
         self._board: torch.Tensor = torch.zeros(
             self.BOARD_DIMENSIONS, dtype=torch.int32
         )
 
         self._layer_list = self.convert_dict_list(self._piece_layer_dict)
-        self._value_list = torch.Tensor(self.convert_dict_list(self._piece_value_dict))
+        self._value_list = torch.tensor(self.convert_dict_list(self._piece_value_dict))
         self._move_list = self.convert_dict_list(self._piece_move_dict)
         self._max_capture_value = self.generate_max_capture_value()
 
+    # Constants
     def generate_max_capture_value(self) -> float:
         """Pregenerate sum of all captures."""
         total_values_piece = [
@@ -156,6 +162,7 @@ class __BoardMaster:
         ]
         return sum(total_values_piece)
 
+    # Constants
     def convert_dict_list(self, piece_any_dict) -> list[Any]:
         """Convert a piece to any dictionary into a unique identifiers dict."""
         converter = [None] * len(piece_any_dict)
@@ -163,9 +170,11 @@ class __BoardMaster:
             converter[self._piece_unique_dict[key]] = piece_any_dict[key]
         return converter
 
+    # translate
     def index_from_move(self, x, y) -> int:
         return y * self.x + x
 
+    # translate
     def move_from_index(
         self, index: int | torch.Tensor
     ) -> tuple[int | torch.Tensor, int | torch.Tensor, int | torch.Tensor]:
@@ -185,6 +194,7 @@ class __BoardMaster:
             )
         return x, y, flag
 
+    # Rules
     def generate_p_moves(self, x: int, y: int, state: "State") -> torch.Tensor:
         """Pregenerate moves for Private."""
         # benchmarked against ray casting.
@@ -195,6 +205,7 @@ class __BoardMaster:
         keep = ~own_mask[real_move_targets[:, 0], real_move_targets[:, 1]]
         return real_move_targets[keep]
 
+    # Rules
     def generate_s_moves(self, x: int, y: int, state: "State") -> torch.Tensor:
         """Pregenerate moves for Sergeant."""
         # benchmarked against ray casting.
@@ -221,6 +232,7 @@ class __BoardMaster:
             return torch.empty((0, 2), dtype=torch.int32)
         return torch.concatenate(moves, dim=0)
 
+    # Rules
     def generate_o_moves(self, x: int, y: int, state: "State") -> torch.Tensor:
         """Pregenerate moves for Officer."""
         # benchmarked against ray casting.
@@ -248,11 +260,13 @@ class __BoardMaster:
             return torch.empty((0, 2), dtype=torch.int32)
         return torch.concatenate(moves, dim=0)
 
+    # Constants
     def _set_piece_position(self, key: str) -> None:
         """Set all piece positions."""
         x, y = self._initial_piece_dictionary[key]
         self._board[self._piece_layer_dict[key]][x, y] = 1
 
+    # Constants
     def _set_pieces(self) -> None:
         for key in self._pieces:
             self._set_piece_position(key)
@@ -261,50 +275,61 @@ class __BoardMaster:
         ]
         self._board[: self.num_pieces, :, self.num_pieces :] = 0
 
+    # Constants
     def empty_board(self) -> torch.Tensor:
         """Get empty board."""
         return torch.zeros(self.BOARD_DIMENSIONS)
 
+    # Constants
     def initial_board(self) -> torch.Tensor:
         """Get initial board state."""
         self._set_pieces()
         return self._board.clone()
 
+    # Constants
     @property
     def num_pieces(self) -> int:
         """Return number of pieces."""
         return len(self._pieces)
 
+    # Constants
     @property
     def board_size(self) -> tuple[int, int]:
         """Allow access to the board size."""
         return copy(self.BOARD_SIZE)
 
+    # Constants
     @property
     def x(self) -> int:
         return self.BOARD_SIZE[0]
 
+    # Constants
     @property
     def y(self) -> int:
         return self.BOARD_SIZE[1]
 
+    # Constants
     @property
     def num_layers(self) -> int:
         """Get number of layers."""
         return self.NUM_LAYERS
 
+    # Constants
     @property
     def pieces(self) -> Iterable[str]:
         return self._pieces.copy()
 
+    # Constants
     @property
     def max_capture_value(self) -> float:
         return self._max_capture_value
 
+    # Constants
     @property
     def capture_clock(self) -> int:
         return self._capture_clock
 
+    # translate
     def player_half(self, y: int, player: bool) -> bool:
         """Return if y is on the player side of the board."""
         return (
@@ -312,6 +337,7 @@ class __BoardMaster:
             and y < (1 + int(player)) * Board.board_size[1] // 2
         )
 
+    # translate
     def half_indices(self, y: int | torch.Tensor) -> tuple[int, int]:
         """Get indices equating to player layers."""
         jbool = not (y <= self.num_pieces)
@@ -319,32 +345,40 @@ class __BoardMaster:
         j2 = (int(jbool) + 1) * self.num_pieces
         return j1, j2
 
+    # translate
     def layer_from_piece(self, piece: str) -> int:
         """Get layer from piece."""
         return self._piece_layer_dict[piece]
 
+    # translate
     def value_from_piece(self, piece: str) -> float:
         """Get value from piece."""
         return self._piece_value_dict[piece]
 
+    # translate
     def moves_from_piece(
         self, piece: str
     ) -> Callable[[int, int, "State"], torch.Tensor]:
         """Get moves from piece."""
         return self._piece_move_dict[piece]
 
+    # translate
     def unqiue_from_layer(self, layer: int | torch.Tensor) -> int | torch.Tensor:
         return layer % len(self._pieces)
 
-    def value_from_layer(self, layer: int | torch.Tensor) -> float | torch.Tensor:
+    # translate
+    def value_from_layer(self, layer: int | torch.Tensor) -> torch.Tensor:
         return self._value_list[self.unqiue_from_layer(layer)]
 
-    def piece_from_layer(self, layer: int) -> str:
+    # translate
+    def piece_from_layer(self, layer: int | torch.Tensor) -> str:
         return self._pieces[layer % len(self._pieces)]
 
+    # translate
     def valid_position(self, x: int, y: int) -> bool:
         return (x >= 0) and (x < self.x) and (y >= 0) and (y < self.y)
 
+    # translate
     def valid_positions(self, positions: torch.Tensor) -> torch.Tensor:
         return (
             (positions[:, 0] >= 0)
@@ -353,29 +387,35 @@ class __BoardMaster:
             & (positions[:, 1] < self.y)
         )
 
+    # Constants
     @property
     def move_tensor_shape(self) -> tuple[int, int, int]:
         """Get shape for move tensor."""
         return (*self.board_size, self.MAX_MOVES)
 
+    # Constants
     @property
     def state_tensor_shape(self) -> tuple[int, int, int]:
         return (*self.board_size, self.CHANNEL_NUMBER)
 
+    # Constants
     @property
     def state_tensor_batch_shape(self) -> tuple[int, int, int, int]:
         """Get shape for move tensor."""
         return (*self.state_tensor_shape, self.NUM_LEAVES)
 
+    # Constants
     @property
     def move_tensor_batch_shape(self) -> tuple[int, int, int, int]:
         """Get shape for move tensor."""
         return (*self.move_tensor_shape, self.NUM_LEAVES)
 
+    # Constants
     @property
     def leaf_batch_shape(self) -> tuple[int, int, int, int]:
         return (*self.state_tensor_shape, self.NUM_LEAVES)
 
+    # Constants
     @property
     def value_batch_shape(self) -> tuple[int]:
         return (self.NUM_LEAVES,)

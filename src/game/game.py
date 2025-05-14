@@ -8,7 +8,6 @@ from game.state import State
 from game.utils import Board
 from collections import deque
 import torch
-import os
 import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -43,18 +42,9 @@ class Game:
         """Copy from RecordGame."""
         return cls(game.state.copy(), game.last_moves)
 
-    @classmethod
-    def from_record_game(cls, record_game: RecordGame) -> Game:
-        """Copy from RecordGame."""
-        return cls(record_game.state.copy(), record_game.last_moves)
-
     def copy(self) -> Game:
         """Copy operation."""
         return self.from_game(self)
-
-    def reset(self) -> None:
-        """Reset game state."""
-        self.state = State.initial_state()
 
     def save(self, path: str) -> None:
         """Save game state to torch tensor file."""
@@ -64,6 +54,7 @@ class Game:
         """Load game state from torch tensor file."""
         self.state = State.from_file(path)
 
+    # State
     def make_move(
         self,
         x1: int | torch.Tensor,
@@ -84,6 +75,7 @@ class Game:
         self.last_moves.appendleft(self.state.state)
         self.state.make_move(x1, y1, x2, y2, flag)
 
+    # State
     def get_piece_targets(self, x: int, y: int) -> torch.Tensor:
         """Get all move target squares of a single piece."""
         layers: torch.Tensor = self.state.get_layer(x, y)
@@ -105,6 +97,7 @@ class Game:
         """Get a move tensor with all moves equally likely."""
         return torch.full(Board.move_tensor_shape, value)
 
+    # State
     def move_mask(self) -> torch.Tensor:
         """Get mask for viable moves in move tensor."""
         own_positions = torch.where(self.state.get_player_mask(self.state.player))
@@ -114,14 +107,17 @@ class Game:
             mask[x, y, Board.index_from_move(move_x, move_y)] = True
         return mask
 
+    # State
     def all_moves(self) -> tuple[torch.Tensor, ...]:
         """Get list of all moves."""
         return torch.where(self.move_mask())
 
+    # State
     def game_over(self) -> bool:
         """Check game status."""
         return self.state.game_over()
 
+    # State
     def winner(self) -> bool | None:
         """Game winner."""
         if (
@@ -134,59 +130,3 @@ class Game:
                 self.state.captured_value[int(False)]
                 <= self.state.captured_value[int(True)]
             )
-
-
-class RecordGame(Game):
-    """Game with recording of past moves into files."""
-
-    def __init__(
-        self, state: State, last_moves: deque[torch.Tensor], folder_name: str
-    ) -> None:
-        """Generate RecordGame instance.
-
-        Should not be used directly! Use factory Methods instead.
-        """
-        super().__init__(state, last_moves)
-        logger.info("Recording.")
-        self.folder_name: str = folder_name
-        self.recent_file_names: deque[str] = deque(maxlen=self.HIST_LEN)
-
-    def _prep(self):
-        """Prepare recording Folder."""
-        for _ in range(self.HIST_LEN):
-            self.recent_file_names.appendleft(self.get_state_name())
-        if not self.folder_name.endswith(os.path.sep):
-            self.folder_name += os.path.sep
-        os.makedirs(self.folder_name, exist_ok=False)
-        with open(self.folder_name + "moves.csv") as f:
-            f.write("STARTBOARD,ENDBOARD,MOVEX1,MOVEY1,MOVEX2,MOVEY2,VALIDITY\n")
-
-    @classmethod
-    def copy_game(cls, game: Game, folder_name: str) -> RecordGame:
-        """Copy content from other game."""
-        return cls(game.state, game.last_moves, folder_name)
-
-    @classmethod
-    def new_game(cls, folder_name: str) -> RecordGame:
-        """Generate new empty game."""
-        last_moves = deque(maxlen=cls.HIST_LEN)
-        last_moves.appendleft(Board.empty_board())
-        return cls(State.from_tensor(Board.empty_board()), last_moves, folder_name)
-
-    def get_state_name(self) -> str:
-        """Hash the state to a file name."""
-        return f"{hex(hash(self.state.tensor_reference))}.pt"
-
-    def record(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
-        """Record made move."""
-        self.recent_file_names.appendleft(self.get_state_name())
-        self.state.save(self.recent_file_names[0])
-        with open(self.folder_name + "moves.csv") as f:
-            f.write(
-                f"{self.recent_file_names[0]},{self.recent_file_names[1]},{x1},{y1},{x2},{y2}\n"
-            )
-
-    def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
-        """Make move while recording."""
-        super().make_move(x1, y1, x2, y2, flag)
-        self.record(x1, y1, x2, y2, flag)

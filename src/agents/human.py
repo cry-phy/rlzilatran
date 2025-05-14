@@ -150,7 +150,6 @@ class HumanAgent(BaseAgent):
         x: int = event.x // self._CELL_SIZE
         y: int = event.y // self._CELL_SIZE
         logger.debug("Click registered: (%f, %f) -> (%i, %i)", event.x, event.y, x, y)
-
         logger.debug("Running %s", self.tool_function_dict[self.selected].__name__)
         self.tool_function_dict[self.selected](x, y)
         return super().handle_click(event)
@@ -177,9 +176,10 @@ class HumanAgent(BaseAgent):
             self._value = 1
         else:
             self._value = -1
-        self._move_tensor = torch.zeros(Board.move_tensor_shape)
+
+        self._move_tensor = self._game.full_move_tensor(0)
         x1, y1, x2, y2, _ = self._move
-        self._move_tensor[x1, y1, Board.index_from_move(x2, y2)]
+        self._move_tensor[x1, y1, Board.index_from_move(x2, y2)] = 1
 
     # Overwrite MPI interactions since communication is not necessary
     def reduce_move_tensors(self) -> torch.Tensor:
@@ -262,7 +262,7 @@ class HumanAgent(BaseAgent):
             y, self._game.state.player
         )
 
-    def second_click_validity(self, x: int, y: int) -> bool:
+    def second_click_validity(self, x: int, y: int) -> bool | torch.Tensor:
         """Check whether square is valid for move."""
         return self._game.state.check_move(
             self._selected_position[0], self._selected_position[1], x, y

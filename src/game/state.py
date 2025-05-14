@@ -220,11 +220,7 @@ class State:
 
     def square_filled(self, x: int, y: int) -> bool:
         """Return if th square has pieces on it."""
-        return bool(self._tensor[:, x, y].sum(axis=0))
-
-    def get_layer(self, x: int, y: int) -> torch.Tensor:
-        """Get layers with pieces on square."""
-        return torch.where(self._tensor[:, x, y])[0]
+        return bool(self._tensor[:, x, y].sum(dim=0))
 
     def get_player_mask(self, player: bool) -> torch.Tensor:
         """Get mask of player."""
@@ -238,7 +234,7 @@ class State:
             .to(dtype=torch.bool)
         )
 
-    def player_material(self, player: bool) -> float:
+    def player_material(self, player: bool) -> float | torch.Tensor:
         """Get the material of player."""
         x, y = torch.where(self.get_player_mask(player))
         positions: torch.Tensor = torch.stack((x, y), dim=1).T
@@ -247,14 +243,19 @@ class State:
         return value.sum()
 
     # --- Game Rules ---
-    def check_piece_move(self, x1: int, y1: int, x2: int, y2: int) -> bool:
+    # Rules
+    def check_piece_move(
+        self, x1: int, y1: int, x2: int, y2: int
+    ) -> bool | torch.Tensor:
         """Check whether attempted move is in valid moves for piece."""
-        target = torch.Tensor([x2, y2])
-        piece = Board.piece_from_layer(self.get_layer(x1, y1))
+        target = torch.tensor([x2, y2])
+        layers = torch.where(self._tensor[:, x1, y1])[0]
+        piece = Board.piece_from_layer(layers)
         moves = Board.moves_from_piece(piece)(x1, y1, self)
         return torch.any(torch.all(moves == target, dim=1))
 
-    def check_move(self, x1: int, y1: int, x2: int, y2: int) -> bool:
+    # Rules
+    def check_move(self, x1: int, y1: int, x2: int, y2: int) -> bool | torch.Tensor:
         """Check whether move is valid."""
         return (
             Board.valid_position(x1, y1)
@@ -263,6 +264,7 @@ class State:
             and self.check_piece_move(x1, y1, x2, y2)
         )
 
+    # Rules
     def check_half_empty(self) -> bool:
         """Termination state this half of the board is empty."""
         return not torch.any(
@@ -274,6 +276,7 @@ class State:
             ].to(dtype=torch.bool)
         )
 
+    # Rules
     def check_captured_value_termination(self) -> bool:
         """Check whether game has ended due to captures."""
         return (
@@ -281,10 +284,12 @@ class State:
             or self._captured_value[1] >= Board.max_capture_value / 2
         )
 
+    # Rules
     def check_capture_call_termination(self) -> bool:
         """Check game status by capture call."""
         return self._since_capture_call >= Board.capture_clock
 
+    # Rules
     def check_capture_termination(self) -> bool:
         """Check if the game has ended due to no captures.
 
@@ -292,6 +297,7 @@ class State:
         """
         return self._since_capture >= 100
 
+    # Rules
     def game_over(self) -> bool:
         """Check all termination status."""
         return (
@@ -388,6 +394,10 @@ class State:
         """Clear square entirely."""
         self._tensor[:, x, y] = 0
 
+    def get_layer(self, x, y):
+        return torch.where(self._tensor[:, x, y])[0]
+
+    # Game
     # -- Retrieve Channels --
     def player_channel(self) -> torch.Tensor:
         """Generate entire layer of player values."""
