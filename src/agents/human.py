@@ -1,13 +1,15 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from game.utils.rules import Rules
+from game.utils.translator import MoveFlag, Translator
+
 if TYPE_CHECKING:
     from game.game import Game
     from typing import Callable
     from tkinter import Event
 
 from agents.base import BaseAgent, Tool
-from game.utils import Board, MoveFlag
 from mpi.handler import MPIHandler
 from copy import copy
 import functools
@@ -28,10 +30,10 @@ def on_grid(fn):
         bound.apply_defaults()
         x = bound.arguments["x"]
         y = bound.arguments["y"]
-        if Board.valid_position(x, y):
+        if Rules.valid_position(x, y):
             return fn(*args, **kwargs)
         else:
-            logger.debug("Clicked position (%i,%i) outside %s", x, y, Board.board_size)
+            logger.debug("Clicked invalid position (%i,%i)", x, y)
 
     return wrapper
 
@@ -63,7 +65,7 @@ class DummyAgent(BaseAgent):
 
         The Human player bypasses the Move selection by only reading on the observer rank.
         """
-        self._move_tensor = torch.zeros(Board.move_tensor_shape)
+        self._move_tensor = self._game.full_move_tensor(0)
         self._value = -1
 
     def reduce_move_tensors(self) -> torch.Tensor:
@@ -83,7 +85,7 @@ class HumanAgent(BaseAgent):
 
     clickable: bool = True
 
-    def __new__(cls, game: Game) -> "HumanAgent | BaseAgent":
+    def __new__(cls, game: Game) -> HumanAgent | BaseAgent:
         """Decide beween Human Agent and dummy agent."""
         mpi = MPIHandler()
         if mpi._orank == mpi.OBSERVER_ORANK:
@@ -179,7 +181,7 @@ class HumanAgent(BaseAgent):
 
         self._move_tensor = self._game.full_move_tensor(0)
         x1, y1, x2, y2, _ = self._move
-        self._move_tensor[x1, y1, Board.index_from_move(x2, y2)] = 1
+        self._move_tensor[x1, y1, Translator.index_from_move(x2, y2)] = 1
 
     # Overwrite MPI interactions since communication is not necessary
     def reduce_move_tensors(self) -> torch.Tensor:
@@ -235,7 +237,7 @@ class HumanAgent(BaseAgent):
         """Separate tool actions."""
         if self._game.state.square_filled(x, y):
             self.select_square(x, y)
-            if not Board.player_half(y, self._game.state.player):
+            if not Translator.player_half(y, self._game.state.player):
                 self._game.state.player = not self._game.state.player
             self._select_tool(Tool.FORCE_MOVE)
 
@@ -258,7 +260,7 @@ class HumanAgent(BaseAgent):
     # -- Click validity --
     def first_click_validity(self, x: int, y: int) -> bool:
         """Check whether square is valid for selection."""
-        return self._game.state.square_filled(x, y) and Board.player_half(
+        return self._game.state.square_filled(x, y) and Translator.player_half(
             y, self._game.state.player
         )
 

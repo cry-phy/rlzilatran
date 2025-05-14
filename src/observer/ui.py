@@ -2,7 +2,8 @@ from typing import Callable, cast
 from agents.base import BaseAgent
 from game.game import Game
 from game.state import State
-from game.utils import Board, MoveFlag
+from game.utils.constants import Constants
+from game.utils.translator import MoveFlag, Translator
 from mpi.handler import gracefull_error
 from observer.base import BaseObserver
 from agents.human import HumanAgent, Tool
@@ -51,7 +52,7 @@ class UIObserver(BaseObserver):
 
         self.selected_positions: list[tuple[int, int]] = []
         self.possible_moves: torch.Tensor = torch.empty(0, 2)
-        self.move_tensor: torch.Tensor = torch.zeros(Board.move_tensor_shape)
+        self.move_tensor: torch.Tensor = self.game.full_move_tensor(0)
         self.target_values: torch.Tensor | None = None
 
         # --- Menu Bar ---
@@ -82,7 +83,7 @@ class UIObserver(BaseObserver):
         self.side_panel.grid_columnconfigure(0, weight=1)
 
         # --- Canvas for Board ---
-        self.COLUMNS, self.ROWS = Board.board_size
+        self.COLUMNS, self.ROWS = Constants.board_size
         self.CELL_SIZE: int = 80
         self.FONT_SIZE: int = 15
         self.SMALL_FONT: int = 10
@@ -162,20 +163,20 @@ class UIObserver(BaseObserver):
         ]:
             toolmenu.add_radiobutton(
                 label=label,
-                variable=self.current_agent().selected_var,
+                variable=cast(tk.IntVar, self.current_agent().selected_var),
                 value=tool.value,
                 command=lambda t=tool: self.current_agent()._select_tool(t),
             )
         toolmenu.add_separator()
         toolmenu.add_radiobutton(
             label="MOVE",
-            variable=self.current_agent().selected_var,
+            variable=cast(tk.IntVar, self.current_agent().selected_var),
             value=Tool.MOVE.value,
             command=lambda: self.current_agent()._select_tool(Tool.MOVE),
         )
         toolmenu.add_radiobutton(
             label="FORCE",
-            variable=self.current_agent().selected_var,
+            variable=cast(tk.IntVar, self.current_agent().selected_var),
             value=Tool.FORCE_SELECT.value,
             command=lambda: self.current_agent()._select_tool(Tool.FORCE_SELECT),
         )
@@ -249,10 +250,12 @@ class UIObserver(BaseObserver):
     def draw_pieces(self) -> None:
         """Draw pieces."""
         current_state = self.game.state.state.clone()
-        for piece in Board.pieces:
+        for piece in Constants.pieces:
             piece_layer = (
-                current_state[Board.layer_from_piece(piece)]
-                + current_state[Board.layer_from_piece(piece) + Board.num_pieces]
+                current_state[Translator.layer_from_piece(piece)]
+                + current_state[
+                    Translator.layer_from_piece(piece) + Constants.num_pieces
+                ]
             )
             positions: tuple[torch.Tensor, ...] = torch.where(piece_layer)
             xs: torch.Tensor = (positions[0] + 0.5) * self.CELL_SIZE
@@ -287,11 +290,11 @@ class UIObserver(BaseObserver):
         """Shade the squares according to the given/previous move tensor."""
         if move_tensor is not None:
             self.move_tensor = move_tensor - move_tensor.min()
-            self.target_values = self.move_tensor[:, :, :-1].sum(axis=(0, 1))
+            self.target_values = self.move_tensor[:, :, :-1].sum(dim=(0, 1))
             self.target_colors = bwr_colormap(self.target_values)
         if self.target_values is not None:
             indices = torch.arange(len(self.target_values))
-            xs, ys, _ = Board.move_from_index(indices)
+            xs, ys, _ = Translator.move_from_index(indices)
             for x, y, c in zip(
                 cast(torch.Tensor, xs),
                 cast(torch.Tensor, ys),

@@ -1,6 +1,6 @@
 from agents.base import BaseAgent
 from game.game import Game
-from game.utils import Board
+from game.utils.constants import Constants
 from mpi.handler import MPIHandler
 import torch
 
@@ -54,7 +54,7 @@ class BaseObserver:
 
     def batch_ready(self) -> bool:
         """Check if batch is full."""
-        return self._num_data >= Board.NUM_LEAVES
+        return self._num_data >= Constants.BATCH_SIZE
 
     def reset_data(self) -> None:
         """Remove Data and reset counter."""

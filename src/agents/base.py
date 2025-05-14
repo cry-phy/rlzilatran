@@ -1,12 +1,13 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from game.utils.translator import MoveFlag
+
 if TYPE_CHECKING:
     from game.game import Game
     import tkinter as tk
 
 from enum import Enum, auto
-from game.utils import Board, MoveFlag
 from mpi.handler import MPIHandler
 import torch
 import importlib
@@ -47,7 +48,7 @@ class BaseAgent:
         self._player: bool = game.state.player
         self._move_ready: bool = True
         self._move_flag: MoveFlag = MoveFlag.STANDARD
-        self._move_tensor: torch.Tensor = torch.zeros(Board.move_tensor_shape)
+        self._move_tensor: torch.Tensor = self._game.full_move_tensor(0)
         self._value: float = 0
 
         # For clickable Agents.

@@ -6,7 +6,6 @@ if TYPE_CHECKING:
     from game.game import Game
 
 from agents.base import BaseAgent
-from game.utils import Board
 from time import time
 import torch
 import logging
@@ -100,7 +99,7 @@ class MinimaxAgent(BaseAgent):
             value = -1e9
             for x, y, index in zip(*game.all_moves(), strict=True):
                 new_game = game.copy()
-                new_game.make_move(x, y, *Board.move_from_index(index))
+                new_game.make_move(x, y, *self._game.move_from_index(index))
                 child_val = float(self.minimax(depth + 1, alpha, beta, new_game))
                 value = max(value, child_val)
                 alpha = max(alpha, value)
@@ -111,7 +110,7 @@ class MinimaxAgent(BaseAgent):
             value = 1e9
             for x, y, index in zip(*game.all_moves(), strict=True):
                 new_game = game.copy()
-                new_game.make_move(x, y, *Board.move_from_index(index))
+                new_game.make_move(x, y, *self._game.move_from_index(index))
                 child_val = float(self.minimax(depth + 1, alpha, beta, new_game))
                 value = min(value, child_val)
                 beta = min(beta, value)
@@ -133,11 +132,11 @@ class MinimaxAgent(BaseAgent):
         shifted_flat = move_tensor.flatten() - move_tensor.min()
         move_propabilities = shifted_flat / shifted_flat.sum()
         move_flat_index = torch.multinomial(move_propabilities, 1)
-        move_indices = torch.unravel_index(move_flat_index, Board.move_tensor_shape)
+        move_indices = torch.unravel_index(move_flat_index, move_tensor.shape)
         logger.debug("Suggesting move: %s", move_indices)
         x1: torch.Tensor = move_indices[0]
         y1: torch.Tensor = move_indices[1]
-        x2, y2, flag = Board.move_from_index(move_indices[2])
+        x2, y2, flag = self._game.move_from_index(move_indices[2])
         return x1, y1, x2, y2, flag
 
     def generate_move_tensor(self) -> None:
@@ -161,12 +160,12 @@ class MinimaxAgent(BaseAgent):
         logger.debug("Running moves %i:%i.", start_index, end_index)
 
         # Evaluate
-        move_valuations = torch.zeros(Board.move_tensor_shape)
+        move_valuations = self._game.full_move_tensor(0)
         start_time = time()
         self.counter = 1
         for x, y, index in task_moves:
             game: Game = self._game.copy()
-            game.make_move(x, y, *Board.move_from_index(index))
+            game.make_move(x, y, *self._game.move_from_index(index))
             value = self.minimax(1, -1e9, 1e9, game)
             move_valuations[x, y, index] = value + 1e-9
         runtime = time() - start_time

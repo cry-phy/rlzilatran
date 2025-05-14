@@ -1,8 +1,11 @@
 from copy import copy
-from game.utils import Board, MoveFlag
 import torch
 import json
 import logging
+
+from game.utils.constants import Constants
+from game.utils.translator import MoveFlag, Translator
+from game.utils.rules import Rules
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -37,7 +40,6 @@ class State:
         self._active_capture_call: bool = False
         self._since_capture: int = since_capture
         self._since_capture_call: int = since_capture_call
-        self._board_size: tuple[int, int] = Board.board_size
 
     @property
     def tensor_reference(self) -> torch.Tensor:
@@ -97,12 +99,12 @@ class State:
     @classmethod
     def initial_state(cls) -> "State":
         """Generate Initial game State."""
-        return cls(Board.initial_board())
+        return cls(Constants.initial_board())
 
     @classmethod
     def empty(cls) -> "State":
         """Generate empty state."""
-        return cls(Board.empty_board())
+        return cls(Constants.empty_board())
 
     @classmethod
     def from_tensor(cls, tensor: torch.Tensor) -> "State":
@@ -142,8 +144,6 @@ class State:
         string += "\n\t"
         string += "since_capture_call:  " + str(self._since_capture_call)
         string += "\n\t"
-        string += "board_size:          " + str(self._board_size)
-        string += "\n\t"
         string += self._tensor.__repr__()
         return string
 
@@ -159,13 +159,11 @@ class State:
             "captured_value": self._captured_value,
             "since_capture": self._since_capture,
             "since_capture_call": self._since_capture_call,
-            "board_size": self._board_size,
         }
 
     def save(self, path: str) -> None:
         """Save only the data to a JSON file in human readable spacing."""
         data = self.state_dict().copy()
-        board_size = data.pop("board_size")
 
         logger.debug("Dumping data %s", data)
         meta_str = json.dumps(data, indent=2).rstrip()
@@ -175,8 +173,6 @@ class State:
         logger.debug("Dumping tensor and board size.")
         with open(path, "w") as f:
             f.write(meta_str)
-            f.write(',\n  "board_size": ')
-            json.dump(board_size, f, separators=(",", ":"))
             # This incurs overhead but provides human readable data
             # Should not be called often anyways.
             f.write(',\n  "tensor": [\n')
@@ -216,17 +212,18 @@ class State:
 
     def reset(self) -> None:
         """Set to initial state."""
-        self._tensor = Board.initial_board()
+        self._tensor = Constants.initial_board()
 
-    def square_filled(self, x: int, y: int) -> bool:
+    def square_filled(self, x: int, y: int) -> bool | torch.Tensor:
         """Return if th square has pieces on it."""
-        return bool(self._tensor[:, x, y].sum(dim=0))
+        return torch.any(self._tensor[:, x, y])
 
     def get_player_mask(self, player: bool) -> torch.Tensor:
         """Get mask of player."""
         return (
             self._tensor[
-                int(player) * Board.num_pieces : (int(player) + 1) * Board.num_pieces,
+                int(player) * Constants.num_pieces : (int(player) + 1)
+                * Constants.num_pieces,
                 :,
                 :,
             ]
@@ -239,72 +236,26 @@ class State:
         x, y = torch.where(self.get_player_mask(player))
         positions: torch.Tensor = torch.stack((x, y), dim=1).T
         layer, _ = torch.where(self.tensor_reference[:, positions[0], positions[1]])
-        value: torch.Tensor = Board.value_from_layer(layer)
+        value: torch.Tensor = Translator.value_from_layer(layer)
         return value.sum()
 
-    # --- Game Rules ---
-    # Rules
     def check_piece_move(
         self, x1: int, y1: int, x2: int, y2: int
     ) -> bool | torch.Tensor:
         """Check whether attempted move is in valid moves for piece."""
         target = torch.tensor([x2, y2])
         layers = torch.where(self._tensor[:, x1, y1])[0]
-        piece = Board.piece_from_layer(layers)
-        moves = Board.moves_from_piece(piece)(x1, y1, self)
+        piece = Translator.piece_from_layer(layers)
+        moves = Rules.moves_from_piece(piece)(x1, y1, self)
         return torch.any(torch.all(moves == target, dim=1))
 
-    # Rules
-    def check_move(self, x1: int, y1: int, x2: int, y2: int) -> bool | torch.Tensor:
-        """Check whether move is valid."""
-        return (
-            Board.valid_position(x1, y1)
-            and Board.valid_position(x2, y2)
-            and Board.player_half(y1, self._player)
-            and self.check_piece_move(x1, y1, x2, y2)
-        )
-
-    # Rules
-    def check_half_empty(self) -> bool:
-        """Termination state this half of the board is empty."""
-        return not torch.any(
-            self._tensor[
-                :,
-                :,
-                int(not self._player) * Board.num_pieces : (1 + int(not self._player))
-                * Board.num_pieces,
-            ].to(dtype=torch.bool)
-        )
-
-    # Rules
-    def check_captured_value_termination(self) -> bool:
-        """Check whether game has ended due to captures."""
-        return (
-            self._captured_value[0] >= Board.max_capture_value / 2
-            or self._captured_value[1] >= Board.max_capture_value / 2
-        )
-
-    # Rules
-    def check_capture_call_termination(self) -> bool:
-        """Check game status by capture call."""
-        return self._since_capture_call >= Board.capture_clock
-
-    # Rules
-    def check_capture_termination(self) -> bool:
-        """Check if the game has ended due to no captures.
-
-        Needed to get non infinite Episodes.
-        """
-        return self._since_capture >= 100
-
-    # Rules
     def game_over(self) -> bool:
         """Check all termination status."""
         return (
-            self.check_half_empty()
-            or self.check_captured_value_termination()
-            or self.check_capture_call_termination()
-            or self.check_capture_termination()
+            Rules.check_half_empty(self._player, self._tensor)
+            or Rules.check_captured_value_termination(self._captured_value)
+            or Rules.check_capture_call_termination(self._since_capture_call)
+            or Rules.check_capture_termination(self._since_capture)
         )
 
     # --- Board Manipulations ---
@@ -341,11 +292,11 @@ class State:
         # Capture logic handling.
         capture_layer: torch.Tensor = torch.where(self._tensor[:, x2, y2])[0]
         if capture_layer.nelement() != 0:
-            capture_value = Board.value_from_layer(capture_layer)
+            capture_value = Translator.value_from_layer(capture_layer)
             logger.debug(
                 "Capturing %s with value %i",
-                Board.piece_from_layer(capture_layer),
-                Board.value_from_layer(capture_layer),
+                Translator.piece_from_layer(capture_layer),
+                Translator.value_from_layer(capture_layer),
             )
             self._captured_value[int(self._player)] += float(capture_value)
             self._active_capture_call = False
@@ -356,8 +307,8 @@ class State:
                 self.since_capture_call += 1
 
         # Moving pieces
-        i1, i2 = Board.half_indices(y1)
-        j1, j2 = Board.half_indices(y2)
+        i1, i2 = Translator.half_indices(y1)
+        j1, j2 = Translator.half_indices(y2)
         logger.debug(
             "Moving %s to %s",
             str(self._tensor[i1:i2, x1, y1]),
@@ -380,43 +331,55 @@ class State:
 
     def add_piece(self, x: int, y: int, piece: str) -> None:
         """Add Piece to certain layer."""
-        layer: int = Board.layer_from_piece(piece)
-        i1, _ = Board.half_indices(y)
+        layer: int = Translator.layer_from_piece(piece)
+        i1, _ = Translator.half_indices(y)
         self._tensor[i1 + layer, x, y] = 1
 
     def remove_piece(self, x: int, y: int, piece: str) -> None:
         """Remove certain piece."""
-        layer = Board.layer_from_piece(piece)
+        layer = Translator.layer_from_piece(piece)
         self._tensor[layer, x, y] = 0
-        self._tensor[layer + Board.num_pieces, x, y] = 0
+        self._tensor[layer + Constants.num_pieces, x, y] = 0
 
     def clear_square(self, x: int, y: int) -> None:
         """Clear square entirely."""
         self._tensor[:, x, y] = 0
 
-    def get_layer(self, x, y):
+    def get_layer(self, x: int, y: int):
+        """Get layer of pieces on x, y."""
         return torch.where(self._tensor[:, x, y])[0]
 
-    # Game
+    # --- Game Rules ---
+    def check_move(self, x1: int, y1: int, x2: int, y2: int) -> bool | torch.Tensor:
+        """Check whether move is valid."""
+        return (
+            Rules.valid_position(x1, y1)
+            and Rules.valid_position(x2, y2)
+            and Translator.player_half(y1, self._player)
+            and self.check_piece_move(x1, y1, x2, y2)
+        )
+
     # -- Retrieve Channels --
     def player_channel(self) -> torch.Tensor:
         """Generate entire layer of player values."""
-        return torch.full(Board.board_size, int(self._player))[None, :, :]
+        return torch.full(Constants.board_size, int(self._player))[None, :, :]
 
     def captured_value_channel(self) -> torch.Tensor:
         """Generate entire layer of player values."""
-        layer: torch.Tensor = torch.empty(Board.board_size)
-        layer[:, : Board.y // 2] = self._captured_value[0]
-        layer[:, Board.y // 2 :] = self._captured_value[1]
+        layer: torch.Tensor = torch.empty(Constants.board_size)
+        layer[:, : Constants.y // 2] = self._captured_value[0]
+        layer[:, Constants.y // 2 :] = self._captured_value[1]
         return layer[None, :, :]
 
     def since_capture_channel(self) -> torch.Tensor:
         """Generate entire layer of player values."""
-        return torch.full(Board.board_size, int(self._since_capture))[None, :, :]
+        return torch.full(Constants.board_size, int(self._since_capture))[None, :, :]
 
     def since_capture_call_channel(self) -> torch.Tensor:
         """Generate entire layer of player values."""
-        return torch.full(Board.board_size, int(self._since_capture_call))[None, :, :]
+        return torch.full(Constants.board_size, int(self._since_capture_call))[
+            None, :, :
+        ]
 
     def get_additional_channels(self) -> list[torch.Tensor]:
         """Get list of additional channels."""

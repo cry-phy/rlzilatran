@@ -21,7 +21,7 @@ class ProcessError(Exception):
     """Exeption handling errors with processes."""
 
 
-def get_process() -> "MPIProcess":
+def get_process() -> MPIProcess:
     """Return the MPIProcess that is supposed to be run on this Rank."""
     logger.debug("Getting processes.")
     handler = MPIHandler()

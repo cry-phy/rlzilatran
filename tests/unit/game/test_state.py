@@ -1,5 +1,5 @@
 from game.state import State
-from game.utils import Board
+from game.utils.constants import Constants
 from testlib import FIXTURES, TEST_CASES, IDS
 import torch
 import pytest
@@ -45,14 +45,14 @@ def test_state_initial_state():
 def test_state_empty_board():
     """Test if Empty board is set correctly."""
     state = State.empty()
-    assert torch.allclose(state.tensor_reference, Board.empty_board())
+    assert torch.allclose(state.tensor_reference, Constants.empty_board())
 
 
 def test_state_properties():
     """Test properties."""
     state = State.from_file(FIXTURES + "boards/init_board.json")
     torch.manual_seed(SEED)
-    random_state = torch.randint(0, 2, Board.empty_board().shape)
+    random_state = torch.randint(0, 2, Constants.empty_board().shape)
     random_values = torch.randint(0, 10, (3, 1))
     state.state = random_state
     state.player = True

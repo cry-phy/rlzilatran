@@ -1,11 +1,12 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from game.utils.constants import Constants
+
 if TYPE_CHECKING:
     from dynaconf import Dynaconf
 
 from enum import IntEnum, auto
-from game.utils import Board
 from functools import wraps
 from mpi4py import MPI
 from time import time
@@ -201,9 +202,9 @@ class MPIHandler:
         np_move_tensors = move_tensor.numpy()
         message: np.ndarray = np.empty(
             dtype=[
-                ("states", "f4", Board.state_tensor_batch_shape),
-                ("values", "f4", Board.value_batch_shape),
-                ("move_tensor", "f4", Board.move_tensor_batch_shape),
+                ("states", "f4", Constants.state_tensor_batch_shape),
+                ("values", "f4", Constants.value_batch_shape),
+                ("move_tensor", "f4", Constants.move_tensor_batch_shape),
             ]
         )
         message["states"] = np_states
@@ -229,9 +230,9 @@ class MPIHandler:
         """
         message: np.ndarray = np.empty(
             dtype=[
-                ("states", "f4", Board.state_tensor_batch_shape),
-                ("values", "f4", Board.value_batch_shape),
-                ("move_tensor", "f4", Board.move_tensor_batch_shape),
+                ("states", "f4", Constants.state_tensor_batch_shape),
+                ("values", "f4", Constants.value_batch_shape),
+                ("move_tensor", "f4", Constants.move_tensor_batch_shape),
             ]
         )
         req: MPI.Request = self.wcomm.Irecv(
@@ -295,7 +296,7 @@ class MPIHandler:
     def reduce_move_tensors(self, move_tensor: torch.Tensor) -> torch.Tensor:
         """Gather all move suggestion tensors from agents."""
         logger.debug("Reducing move Tensors")
-        move_numpy_sum = np.empty(Board.move_tensor_shape, dtype=np.float32)
+        move_numpy_sum = np.empty(Constants.move_tensor_shape, dtype=np.float32)
         move_numpy = move_tensor.numpy()
         self.ocomm.Reduce(move_numpy, move_numpy_sum, MPI.SUM)
         return torch.from_numpy(move_numpy_sum)
@@ -322,7 +323,7 @@ class MPIHandler:
         self, nsource: int
     ) -> tuple[MPI.Request, int, int, torch.Tensor]:
         """Recieve Leaf batch and nsource from evaluation."""
-        message = self.token.empty_message(Board.leaf_batch_shape)
+        message = self.token.empty_message(Constants.leaf_batch_shape)
         req: MPI.Request = self.ncomm.Irecv(message, nsource, int(Tag.LEAF_BATCH))
         return req, nsource, int(message["token"]), torch.from_numpy(message["data"])
 
@@ -340,8 +341,8 @@ class MPIHandler:
         message: np.ndarray = np.empty(
             dtype=[
                 ("token", "i8"),
-                ("values", "f4", *Board.value_batch_shape),
-                ("move_tensors", "f4", *Board.move_tensor_batch_shape),
+                ("values", "f4", *Constants.value_batch_shape),
+                ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
             ]
         )
         message["token"] = token
@@ -358,8 +359,8 @@ class MPIHandler:
         message: np.ndarray = np.empty(
             dtype=[
                 ("token", "i8"),
-                ("values", "f4", *Board.value_batch_shape),
-                ("move_tensors", "f4", *Board.move_tensor_batch_shape),
+                ("values", "f4", *Constants.value_batch_shape),
+                ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
             ]
         )
         self.ncomm.Recv([message, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))

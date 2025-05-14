@@ -1,11 +1,14 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from game.utils.constants import Constants
+from game.utils.rules import Rules
+from game.utils.translator import Translator
+
 if TYPE_CHECKING:
     from typing import Callable
 
 from game.state import State
-from game.utils import Board
 from collections import deque
 import torch
 import logging
@@ -16,7 +19,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 class Game:
     """Game/States/Rules."""
 
-    HIST_LEN = Board.HISTORY_LENGTH
+    HIST_LEN = Constants.HISTORY_LENGTH
 
     def __init__(self, state: State, last_moves: deque[torch.Tensor]) -> None:
         """Generate Game instance.
@@ -33,9 +36,10 @@ class Game:
     @classmethod
     def new_game(cls) -> Game:
         """Generate Initial game state."""
+        state = State.initial_state()
         last_moves = deque(maxlen=cls.HIST_LEN)
-        [last_moves.appendleft(Board.empty_board()) for _ in range(cls.HIST_LEN)]
-        return cls(State.initial_state(), last_moves)
+        [last_moves.appendleft(state.state) for _ in range(cls.HIST_LEN)]
+        return cls(state, last_moves)
 
     @classmethod
     def from_game(cls, game: Game) -> Game:
@@ -53,6 +57,11 @@ class Game:
     def load(self, path: str) -> None:
         """Load game state from torch tensor file."""
         self.state = State.from_file(path)
+
+    def reset(self) -> None:
+        """Reset game state."""
+        self.state = State.initial_state()
+        [self.last_moves.appendleft(self.state.state) for _ in range(self.HIST_LEN)]
 
     # State
     def make_move(
@@ -80,8 +89,8 @@ class Game:
         """Get all move target squares of a single piece."""
         layers: torch.Tensor = self.state.get_layer(x, y)
         if layers.nelement() != 0:
-            piece: str = Board.piece_from_layer(layers)
-            move_generator: Callable = Board.moves_from_piece(piece)
+            piece: str = Translator.piece_from_layer(layers)
+            move_generator: Callable = Rules.moves_from_piece(piece)
             return move_generator(x, y, self.state)
         else:
             return torch.empty((0, 2), dtype=torch.int)
@@ -95,16 +104,16 @@ class Game:
 
     def full_move_tensor(self, value: float) -> torch.Tensor:
         """Get a move tensor with all moves equally likely."""
-        return torch.full(Board.move_tensor_shape, value)
+        return torch.full(Constants.move_tensor_shape, value, dtype=torch.float32)
 
     # State
     def move_mask(self) -> torch.Tensor:
         """Get mask for viable moves in move tensor."""
         own_positions = torch.where(self.state.get_player_mask(self.state.player))
-        mask = torch.full(Board.move_tensor_shape, False)
+        mask = self.full_move_tensor(False)
         for x, y in zip(*own_positions, strict=True):
             move_x, move_y = self.get_piece_targets(x, y).T
-            mask[x, y, Board.index_from_move(move_x, move_y)] = True
+            mask[x, y, Translator.index_from_move(move_x, move_y)] = True
         return mask
 
     # State
@@ -130,3 +139,9 @@ class Game:
                 self.state.captured_value[int(False)]
                 <= self.state.captured_value[int(True)]
             )
+
+    def move_from_index(
+        self, index: int | torch.Tensor
+    ) -> tuple[int | torch.Tensor, int | torch.Tensor, int | torch.Tensor]:
+        """Pass through translator."""
+        return Translator.move_from_index(index)

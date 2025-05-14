@@ -1,6 +1,6 @@
 from game.state import State
 from game.game import Game
-from game.utils import Board
+from game.utils.translator import MoveFlag, Translator
 from testlib import FIXTURES, TEST_CASES, IDS
 import torch
 import pytest
@@ -11,7 +11,7 @@ def test_move_mask():
     reference = torch.load(FIXTURES + "game_fixtures/init_move_targets.pt")
     game = Game.new_game()
     mask = game.move_mask()
-    generated = Board.move_from_index(torch.where(mask)[2])
+    generated = Translator.move_from_index(torch.where(mask)[2])
     assert torch.allclose(generated[0], reference[0])
     assert torch.allclose(generated[1], reference[1])
 
@@ -30,5 +30,5 @@ def test_move_validity(
     validity: bool,
 ):
     """Run batch tests for move in states."""
-    start_board.make_move(x1, y1, x2, y2)
+    start_board.make_move(x1, y1, x2, y2, MoveFlag.STANDARD)
     assert torch.allclose(start_board.state, end_board.state) is validity
