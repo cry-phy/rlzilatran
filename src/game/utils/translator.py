@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     pass
 
-from game.utils.constants import Constants
+from game.utils import Constants
 from enum import IntEnum, auto
 import torch
 import logging
@@ -84,5 +84,4 @@ class __Translator:
         return Constants._pieces[layer % len(Constants._pieces)]
 
 
-__all__ = ["Translator"]
 Translator = __Translator()

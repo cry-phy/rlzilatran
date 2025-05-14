@@ -4,9 +4,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Callable
-    from game.state import State
+    from game import State
 
-from game.utils.constants import Constants
+from game.utils import Constants
 import torch
 import logging
 
@@ -135,5 +135,4 @@ class __Rules:
     # Rules
 
 
-__all__ = ["Rules"]
 Rules = __Rules()

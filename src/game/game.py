@@ -1,9 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from game.utils.constants import Constants
-from game.utils.rules import Rules
-from game.utils.translator import Translator
+from game.utils import Constants, Rules, Translator
 
 if TYPE_CHECKING:
     from typing import Callable

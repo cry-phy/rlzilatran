@@ -172,5 +172,4 @@ class __Constants:
         return (self.BATCH_SIZE,)
 
 
-__all__ = ["Constants"]
 Constants = __Constants()

@@ -1,14 +1,14 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from game.utils.translator import MoveFlag
+from game.utils import MoveFlag
 
 if TYPE_CHECKING:
-    from game.game import Game
+    from game import Game
     import tkinter as tk
 
 from enum import Enum, auto
-from mpi.handler import MPIHandler
+from mpi import MPIHandler
 import torch
 import importlib
 import pkgutil

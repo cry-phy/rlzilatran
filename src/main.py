@@ -3,8 +3,8 @@ import sys
 from mpi4py import MPI
 
 from config import get_config
-from mpi.handler import MPIHandler
-from mpi.processes import get_process
+from mpi import MPIHandler
+from processes import get_process
 
 
 def setup_logging(rank: int, level: int):
@@ -43,10 +43,10 @@ def main():
     logger.info("Logging initialized.")
 
     config = get_config()
-    MPIHandler(config)
+    handler = MPIHandler(config)
     logger.info("MPI initialized.")
 
-    process = get_process()
+    process = get_process(config, handler)
     logger.info("Processes initialized. Running ...")
 
     process.run()

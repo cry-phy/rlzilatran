@@ -1,6 +1,6 @@
 from dynaconf import Dynaconf
 
-from agents.base import agent_class_dict
+from agents import agent_class_dict
 
 
 CONFIG_PATH = "config.json"

@@ -1,12 +1,9 @@
 from typing import Callable, cast
-from agents.base import BaseAgent
-from game.game import Game
-from game.state import State
-from game.utils.constants import Constants
-from game.utils.translator import MoveFlag, Translator
-from mpi.handler import gracefull_error
-from observer.base import BaseObserver
-from agents.human import HumanAgent, Tool
+from agents import BaseAgent, HumanAgent, Tool
+from game import Game, State
+from game.utils import Constants, MoveFlag, Translator
+from mpi import gracefull_error
+from observer import BaseObserver
 import tkinter as tk
 from tkinter import Event, Menu, filedialog, messagebox
 import torch

@@ -7,3 +7,11 @@ Contains:
 - BaseObserver: Headless observer with the minimum for controlling self play.
 - UIObserver: TKinter based visualization enabling human interaction.
 """
+
+from .base import BaseObserver
+from .ui import UIObserver
+
+__all__ = [
+    "BaseObserver",
+    "UIObserver",
+]

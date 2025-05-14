@@ -3,9 +3,7 @@ import torch
 import json
 import logging
 
-from game.utils.constants import Constants
-from game.utils.translator import MoveFlag, Translator
-from game.utils.rules import Rules
+from game.utils import Constants, MoveFlag, Translator, Rules
 
 logger: logging.Logger = logging.getLogger(__name__)
 

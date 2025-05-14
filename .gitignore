@@ -6,3 +6,5 @@ htmlcov/
 .coverage
 .envrc
 *.ipynb
+*.svg
+!resources/*

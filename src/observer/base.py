@@ -1,7 +1,11 @@
-from agents.base import BaseAgent
-from game.game import Game
-from game.utils.constants import Constants
-from mpi.handler import MPIHandler
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agents import BaseAgent
+from game import Game
+from game.utils import Constants
+from mpi import MPIHandler
 import torch
 
 
@@ -28,7 +32,7 @@ class BaseObserver:
         game: Game,
         agent_cls1: type[BaseAgent],
         agent_cls2: type[BaseAgent],
-    ) -> "BaseObserver":
+    ) -> BaseObserver:
         """Pit two agents against each other."""
         agent1 = agent_cls1(game)
         agent2 = agent_cls2(game)

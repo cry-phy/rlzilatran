@@ -3,9 +3,9 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from typing import Callable
-    from game.game import Game
+    from game import Game
 
-from agents.base import BaseAgent
+from agents import BaseAgent
 from time import time
 import torch
 import logging

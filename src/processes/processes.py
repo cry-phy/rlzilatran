@@ -2,15 +2,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agents.base import BaseAgent
+    from agents import BaseAgent
 
 from typing import cast
 
 import torch
-from config import get_config
-from game.game import Game
-from mpi.handler import MPIHandler, gracefull_error
-from observer.ui import BaseObserver, UIObserver
+from game import Game
+from observer import BaseObserver, UIObserver
 
 import logging
 
@@ -21,11 +19,9 @@ class ProcessError(Exception):
     """Exeption handling errors with processes."""
 
 
-def get_process() -> MPIProcess:
+def get_process(config, handler) -> MPIProcess:
     """Return the MPIProcess that is supposed to be run on this Rank."""
     logger.debug("Getting processes.")
-    handler = MPIHandler()
-    config = get_config()
     if handler._wrank == handler.TRAINING_WRANK:
         return TrainingProcess()
     elif handler._nrank == handler.INFERENCE_NRANK:
@@ -66,17 +62,13 @@ class MPIProcess:
 
         doing it in the class block provides some issues at import time.
         """
-        self.mpi = MPIHandler()
-        logger.debug(
-            "Initialized %s on rank %i", self.__class__.__name__, self.mpi._wrank
-        )
+        logger.debug("Initialized %s on rank %i", self.__class__.__name__)
 
     def run(self) -> None:
         """Run the Process."""
         while True:
             self.main_step()
 
-    @gracefull_error
     def main_step(self) -> None:
         """Run a single step in the process loop."""
         raise NotImplementedError
@@ -97,14 +89,13 @@ class TrainingProcess(MPIProcess):
     #           isend notify new weights
     #       ibcast new weights
 
-    @gracefull_error
     def main_step(self) -> None:
         """Run a single step in the process loop."""
         ...
 
 
 class InferenceProcess(MPIProcess):
-    """Initialize process running Inference of the CNN.t.detach()"""
+    """Initialize process running Inference of the CNN."""
 
     # Setup CNN
 
@@ -120,7 +111,6 @@ class InferenceProcess(MPIProcess):
     #       for value batch in infered data:
     #           isend value batch
 
-    @gracefull_error
     def main_step(self) -> None:
         """Run a single step in the process loop."""
         ...
@@ -147,7 +137,6 @@ class AgentProcess(MPIProcess):
         while not self.game.game_over():
             self.main_step()
 
-    @gracefull_error
     def main_step(self) -> None:
         """Agent Control Flow."""
         current_agent = self.agents[self.game.state.player]
@@ -177,10 +166,6 @@ class ObserverProcess(MPIProcess):
         """Set up observer and distribute game anda agents."""
         super().__init__()
         self.obs = BaseObserver.any_vs_any(game, agent_cls1, agent_cls2)
-        if self.mpi._osize is not None:
-            self.osize = self.mpi._osize
-        else:
-            raise ProcessError("Observer on bad rank.")
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
@@ -188,7 +173,6 @@ class ObserverProcess(MPIProcess):
             self.main_step()
             self._send_episode()
 
-    @gracefull_error
     def main_step(self) -> None:
         """Observer rank Control Flow."""
         state_tensor = self.obs.game.state_tensor
@@ -197,11 +181,11 @@ class ObserverProcess(MPIProcess):
         logger.debug("Generated Move")
         sum_move_tensor = current_agent.reduce_move_tensors()
         sum_value = current_agent.reduce_values()
-        move_tensor = sum_move_tensor / self.osize
+        move_tensor = sum_move_tensor
         if sum_value is None:
             raise ValueError("Value should not be None on OBSERVER_ORANK")
         else:
-            value = sum_value / self.osize
+            value = sum_value
         move = current_agent.generate_move(move_tensor)
         logger.debug("Sending Move.")
         bcast_move = current_agent.bcast_move(move)
@@ -209,7 +193,6 @@ class ObserverProcess(MPIProcess):
         logger.info("Move Executed: %s", bcast_move)
         self.obs.add_data(state_tensor, value, move_tensor)
 
-    @gracefull_error
     def _send_episode(self) -> None:
         """Send episode batch to Training."""
         if self.obs.batch_ready():
@@ -234,17 +217,12 @@ class UIObserverProcess(MPIProcess):
         self.obs: UIObserver = cast(
             UIObserver, UIObserver.any_vs_any(game, agent_cls1, agent_cls2)
         )
-        if self.mpi._osize is not None:
-            self.osize = self.mpi._osize
-        else:
-            raise ProcessError("Observer on bad rank.")
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
         self.main_step()
         self.obs.root.mainloop()
 
-    @gracefull_error
     def main_step(self) -> None:
         """Observer rank Control Flow."""
         state_tensor = self.obs.game.state_tensor
@@ -258,13 +236,13 @@ class UIObserverProcess(MPIProcess):
             logger.debug("Generated Move")
             sum_move_tensor = current_agent.reduce_move_tensors()
             sum_value = current_agent.reduce_values()
-            move_tensor = sum_move_tensor / self.osize
+            move_tensor = sum_move_tensor
             torch.save(move_tensor, "temp/move_tensor1.txt")
             self.obs.draw_move_tensor(move_tensor)
             if sum_value is None:
                 raise ValueError("Value should not be None on OBSERVER_ORANK")
             else:
-                value = sum_value / self.osize
+                value = sum_value
             move = current_agent.generate_move(move_tensor)
             logger.debug("Sending Move.")
             bcast_move = current_agent.bcast_move(move)
