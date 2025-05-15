@@ -1,0 +1,46 @@
+digraph "packages" {
+rankdir=BT
+charset="utf-8"
+"src.agents" [color="black", label=<src.agents>, shape="box", style="solid"];
+"src.agents.base" [color="black", label=<src.agents.base>, shape="box", style="solid"];
+"src.agents.human" [color="black", label=<src.agents.human>, shape="box", style="solid"];
+"src.agents.mcts" [color="black", label=<src.agents.mcts>, shape="box", style="solid"];
+"src.agents.minimax" [color="black", label=<src.agents.minimax>, shape="box", style="solid"];
+"src.config" [color="black", label=<src.config>, shape="box", style="solid"];
+"src.game" [color="black", label=<src.game>, shape="box", style="solid"];
+"src.game.game" [color="black", label=<src.game.game>, shape="box", style="solid"];
+"src.game.state" [color="black", label=<src.game.state>, shape="box", style="solid"];
+"src.game.utils" [color="black", label=<src.game.utils>, shape="box", style="solid"];
+"src.game.utils.constants" [color="black", label=<src.game.utils.constants>, shape="box", style="solid"];
+"src.game.utils.rules" [color="black", label=<src.game.utils.rules>, shape="box", style="solid"];
+"src.game.utils.translator" [color="black", label=<src.game.utils.translator>, shape="box", style="solid"];
+"src.main" [color="black", label=<src.main>, shape="box", style="solid"];
+"src.mpi.handler" [color="black", label=<src.mpi.handler>, shape="box", style="solid"];
+"src.observer" [color="black", label=<src.observer>, shape="box", style="solid"];
+"src.observer.base" [color="black", label=<src.observer.base>, shape="box", style="solid"];
+"src.observer.ui" [color="black", label=<src.observer.ui>, shape="box", style="solid"];
+"src.processes" [color="black", label=<src.processes>, shape="box", style="solid"];
+"src.agents" -> "src.agents.base" [arrowhead="open", arrowtail="none"];
+"src.agents" -> "src.agents.human" [arrowhead="open", arrowtail="none"];
+"src.agents" -> "src.agents.minimax" [arrowhead="open", arrowtail="none"];
+"src.agents" -> "src.agents.mcts" [arrowhead="open", arrowtail="none"];
+"src.agents.minimax" -> "src.game" [arrowhead="open", arrowtail="none"];
+"src.agents.mcts" -> "src.game" [arrowhead="open", arrowtail="none"];
+"src.agents.human" -> "src.game" [arrowhead="open", arrowtail="none"];
+"src.agents.base" -> "src.game" [arrowhead="open", arrowtail="none"];
+"src.observer.base" -> "src.agents" [arrowhead="open", arrowtail="none"];
+"src.observer.ui" -> "src.agents" [arrowhead="open", arrowtail="none"];
+"src.processes" -> "src.observer" [arrowhead="open", arrowtail="none"];
+"src.game" -> "src.game.game" [arrowhead="open", arrowtail="none"];
+"src.game.game" -> "src.game.state" [arrowhead="open", arrowtail="none"];
+"src.game.game" -> "src.game.utils" [arrowhead="open", arrowtail="none"];
+"src.game.state" -> "src.game.utils" [arrowhead="open", arrowtail="none"];
+"src.game.utils" -> "src.game.utils.constants" [arrowhead="open", arrowtail="none"];
+"src.game.utils" -> "src.game.utils.rules" [arrowhead="open", arrowtail="none"];
+"src.game.utils" -> "src.game.utils.translator" [arrowhead="open", arrowtail="none"];
+"src.main" -> "src.config" [arrowhead="open", arrowtail="none"];
+"src.main" -> "src.mpi.handler" [arrowhead="open", arrowtail="none"];
+"src.main" -> "src.processes" [arrowhead="open", arrowtail="none"];
+"src.observer" -> "src.observer.base" [arrowhead="open", arrowtail="none"];
+"src.observer" -> "src.observer.ui" [arrowhead="open", arrowtail="none"];
+}
