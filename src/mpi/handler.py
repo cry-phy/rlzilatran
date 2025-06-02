@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from game.utils import Constants
+from game.utils.constants import Constants
 
 if TYPE_CHECKING:
     from dynaconf import Dynaconf

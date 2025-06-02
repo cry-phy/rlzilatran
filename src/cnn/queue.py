@@ -1,8 +1,10 @@
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Generic, Iterable, TypeVar
 from mpi4py.MPI import Request
 from collections import deque
 import torch
+
+Item = TypeVar("Item", bound="BaseItem")
 
 
 @dataclass
@@ -29,13 +31,13 @@ class EpisodeItem(BaseItem):
     moves: torch.Tensor
 
 
-class Queue:
+class Queue(Generic[Item]):
     """Wrapper around Deque for only retrieving fully recived messages."""
 
     def __init__(self, batch_size: int) -> None:
         """Generate an empty Queue object."""
         self._batch_size: int = batch_size
-        self._data: deque[BaseItem] = deque()
+        self._data: deque[Item] = deque()
 
     def gen_readiness(self) -> torch.Tensor:
         """Generate the readiness of the requests."""
@@ -54,7 +56,7 @@ class Queue:
         """Determine number of currently resolved requests, generates the corresponding mask."""
         return self.gen_readiness.sum().item()
 
-    def retrieve_ready(self) -> list[BaseItem]:
+    def retrieve_ready(self) -> list[Item]:
         """Retrieve and remove ready items."""
         ready_mask = self.gen_readiness()
         if not torch.any(ready_mask):

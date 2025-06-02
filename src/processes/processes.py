@@ -1,6 +1,15 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from dynaconf import Dynaconf
+
+from src.cnn.loader import get_leaf_loader
+from src.cnn.queue import Queue
+from src.cnn.small import SmallCNN
+import numpy as np
+from src.game.utils.constants import Constants
+from src.mpi.handler import MPIHandler
+
 if TYPE_CHECKING:
     from agents import BaseAgent
 
@@ -19,13 +28,13 @@ class ProcessError(Exception):
     """Exeption handling errors with processes."""
 
 
-def get_process(config, handler) -> MPIProcess:
+def get_process(config: Dynaconf, handler: MPIHandler) -> MPIProcess:
     """Return the MPIProcess that is supposed to be run on this Rank."""
     logger.debug("Getting processes.")
     if handler._wrank == handler.TRAINING_WRANK:
         return TrainingProcess()
     elif handler._nrank == handler.INFERENCE_NRANK:
-        return InferenceProcess()
+        return InferenceProcess(config, handler)
     game: Game = Game.new_game()
     agent_cls1: type[BaseAgent] = config.agent_class_dict[config.obs.agent1]
     agent_cls2: type[BaseAgent] = config.agent_class_dict[config.obs.agent2]
@@ -66,8 +75,7 @@ class MPIProcess:
 
     def run(self) -> None:
         """Run the Process."""
-        while True:
-            self.main_step()
+        raise NotImplementedError
 
     def main_step(self) -> None:
         """Run a single step in the process loop."""
@@ -88,6 +96,10 @@ class TrainingProcess(MPIProcess):
     #       for all processes in cnncomm
     #           isend notify new weights
     #       ibcast new weights
+    def run(self) -> None:
+        """Run the Process."""
+        while True:
+            self.main_step()
 
     def main_step(self) -> None:
         """Run a single step in the process loop."""
@@ -97,23 +109,49 @@ class TrainingProcess(MPIProcess):
 class InferenceProcess(MPIProcess):
     """Initialize process running Inference of the CNN."""
 
-    # Setup CNN
+    def __init__(self, config: Dynaconf, handler: MPIHandler) -> None:
+        """Initialize CNN inference."""
+        super().__init__()
+        self.queue = Queue(Constants.BATCH_SIZE)
+        self.dataset, self.dataloader = get_leaf_loader(
+            self.queue, Constants.BATCH_SIZE
+        )
+        self.cnn = SmallCNN(
+            128,
+            Constants.state_tensor_shape,
+            Constants.move_tensor_shape,
+        )
+        self.mpi = handler
+        self.super_batch_size = config.super_batch_size
+        self.leaf_batch_num = config.leaf_batch_num
 
-    # While True:
-    #   if notify new weights exist:
-    #       recv notify new weights
-    #       ibcast new weights
-    #   if leaf batch:
-    #       irecv leaf batch
-    #       add leaf batch to DataLoader
-    #   if DataLoader enough data:
-    #       Inference on DataLoader
-    #       for value batch in infered data:
-    #           isend value batch
+    def run(self) -> None:
+        """Run the Process."""
+        while True:
+            self.main_step()
 
     def main_step(self) -> None:
         """Run a single step in the process loop."""
-        ...
+        if self.mpi.probe_weights_ready():
+            self.mpi.recv_weights_ready()
+            flat_weights, size = np.empty(0), 0
+            self.mpi.bcast_weights(flat_weights, size)
+            self.cnn.from_flat(flat_weights)
+
+        for nrank in range(cast(int, self.mpi._nsize)):
+            if self.mpi.probe_leaf_batch(nrank):
+                leaf_data = self.mpi.recv_leaf_batch(nrank)
+                self.queue.add(leaf_data)
+
+        if self.queue.num_ready() >= self.leaf_batch_num:
+            moves = []
+            values = []
+            for data in self.dataloader():
+                moves, values = self.cnn.forward(data)
+                moves.append(moves)
+                values.append(values)
+            self.cnn.forward()
+            pass
 
 
 class AgentProcess(MPIProcess):

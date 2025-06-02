@@ -19,10 +19,10 @@ class LeafDataset(IterableDataset):
         """Generate Iterator for a frozen super batch."""
         super_batch_items = self.queue.retrieve_ready()
         if super_batch_items:
-            self.data = [item.data for item in super_batch_items]
-            self.tokens = [item.token for item in super_batch_items]
-            self.source = [item.source for item in super_batch_items]
-            yield from self.data
+            data = [item.data for item in super_batch_items]
+            tokens = [item.token for item in super_batch_items]
+            source = [item.source for item in super_batch_items]
+            yield from zip(data, tokens, source, strict=True)
 
     def retrieve_identifiers(self) -> tuple[list[int], list[int]]:
         """Return list of tokens and sources respectively."""
@@ -41,17 +41,27 @@ class EpisodeDataset(IterableDataset):
         super_batch_items = self.queue.retrieve_ready()
         if super_batch_items:
             data = [item.data for item in super_batch_items]
-            values = [item.values for item in super_batch_items]
+            values = [item.value for item in super_batch_items]
             moves = [item.moves for item in super_batch_items]
             yield from zip(data, moves, values, strict=True)
 
 
-def collate_leaf(super_batch: list[torch.Tensor]) -> torch.Tensor:
+def collate_leaf(
+    super_batch: list[tuple[torch.Tensor, int, int]],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Convert and concatenate leaf batches into super batch."""
-    return torch.cat(super_batch, dim=0)
+    data_list = [batch[0] for batch in super_batch]
+    tokens_list = [torch.full((batch[0].shape[0],), batch[1]) for batch in super_batch]
+    source_list = [torch.full((batch[0].shape[0],), batch[2]) for batch in super_batch]
+    data = torch.cat(data_list, dim=0)
+    tokens = torch.cat(tokens_list, dim=0)
+    source = torch.cat(source_list, dim=0)
+    return data, tokens, source
 
 
-def collate_episode(super_batch: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
+def collate_episode(
+    super_batch: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Collate data, moves and values."""
     data = torch.cat([batch[0] for batch in super_batch], dim=0)
     moves = torch.cat([batch[1] for batch in super_batch], dim=0)
