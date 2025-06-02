@@ -67,6 +67,17 @@ class BaseObserver:
         self._move_data = []
         self._num_data = 0
 
+    def reset(self) -> None:
+        """Reset all componenents."""
+        self.game.reset()
+        agent_cls1 = type(self.agents[0])
+        agent_cls2 = type(self.agents[1])
+        agent1 = agent_cls1(self.game)
+        agent2 = agent_cls2(self.game)
+        agent1.player = True
+        agent2.player = not agent1.player
+        self.agents = (agent1, agent2)
+
     def send_epsiode(self) -> None:
         """Send batch of move data to Training."""
         states = torch.stack(self._state_data)

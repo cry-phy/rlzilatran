@@ -119,7 +119,6 @@ class Game:
         """Get list of all moves."""
         return torch.where(self.move_mask())
 
-    # State
     def game_over(self) -> bool:
         """Check game status."""
         return self.state.game_over()

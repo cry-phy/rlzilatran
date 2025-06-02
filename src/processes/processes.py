@@ -129,17 +129,18 @@ class AgentProcess(MPIProcess):
         super().__init__()
         self.observer = None
         self.game = game
-        temp_obs = BaseObserver.any_vs_any(game, agent_cls1, agent_cls2)
-        self.agents: tuple[BaseAgent, BaseAgent] = temp_obs.agents
+        self.obs = BaseObserver.any_vs_any(game, agent_cls1, agent_cls2)
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
-        while not self.game.game_over():
-            self.main_step()
+        while True:
+            while not self.game.game_over():
+                self.main_step()
+            self.obs.reset()
 
     def main_step(self) -> None:
         """Agent Control Flow."""
-        current_agent = self.agents[self.game.state.player]
+        current_agent = self.obs.current_agent()
         current_agent.generate_move_tensor()
         logger.debug("Generated Move Tensor.")
         _ = current_agent.reduce_move_tensors()
@@ -169,9 +170,12 @@ class ObserverProcess(MPIProcess):
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
-        while not self.obs.game.game_over():
-            self.main_step()
-            self._send_episode()
+        while True:
+            while not self.obs.game.game_over():
+                self.main_step()
+                self._send_episode()
+            logger.info("Game over.")
+            self.obs.reset()
 
     def main_step(self) -> None:
         """Observer rank Control Flow."""
@@ -180,18 +184,14 @@ class ObserverProcess(MPIProcess):
         current_agent.generate_move_tensor()
         logger.debug("Generated Move")
         sum_move_tensor = current_agent.reduce_move_tensors()
-        sum_value = current_agent.reduce_values()
+        sum_value = cast(float, current_agent.reduce_values())
         move_tensor = sum_move_tensor
-        if sum_value is None:
-            raise ValueError("Value should not be None on OBSERVER_ORANK")
-        else:
-            value = sum_value
         move = current_agent.generate_move(move_tensor)
         logger.debug("Sending Move.")
         bcast_move = current_agent.bcast_move(move)
         current_agent.make_move(*bcast_move)
         logger.info("Move Executed: %s", bcast_move)
-        self.obs.add_data(state_tensor, value, move_tensor)
+        self.obs.add_data(state_tensor, sum_value, move_tensor)
 
     def _send_episode(self) -> None:
         """Send episode batch to Training."""
@@ -235,21 +235,18 @@ class UIObserverProcess(MPIProcess):
             current_agent.generate_move_tensor()
             logger.debug("Generated Move")
             sum_move_tensor = current_agent.reduce_move_tensors()
-            sum_value = current_agent.reduce_values()
+            sum_value = cast(float, current_agent.reduce_values())
             move_tensor = sum_move_tensor
             torch.save(move_tensor, "temp/move_tensor1.txt")
             self.obs.draw_move_tensor(move_tensor)
-            if sum_value is None:
-                raise ValueError("Value should not be None on OBSERVER_ORANK")
-            else:
-                value = sum_value
             move = current_agent.generate_move(move_tensor)
             logger.debug("Sending Move.")
             bcast_move = current_agent.bcast_move(move)
+            logger.debug("Decided Move %s.", bcast_move)
             current_agent.make_move(*bcast_move)
             logger.info("Move Executed: %s", bcast_move)
             self.obs.redraw_board()
-            self.obs.add_data(state_tensor, value, move_tensor)
+            self.obs.add_data(state_tensor, sum_value, move_tensor)
 
             if current_agent.clickable:
                 self.obs.post_clickable_input()
@@ -258,3 +255,5 @@ class UIObserverProcess(MPIProcess):
             self.obs.wait(self.main_step)
         else:
             logger.info("Game over.")
+            self.obs.reset()
+            self.obs.wait(self.main_step)
