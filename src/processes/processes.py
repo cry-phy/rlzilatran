@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from dynaconf import Dynaconf
 
 from src.cnn.loader import get_leaf_loader
-from src.cnn.queue import Queue
+from src.cnn.queue import EpisodeItem, LeafItem, Queue
 from src.cnn.small import SmallCNN
 from src.game.utils.constants import Constants
 from src.mpi.handler import MPIHandler
@@ -97,17 +97,8 @@ class TrainingProcess(MPIProcess):
             Constants.move_tensor_shape,
         )
         self.mpi = handler
-        self.episode_batch_num = config.episode_batch_num
+        self.episode_batch_num = config.cnn.episode_batch_num
 
-    # While True:
-    #   if new episode:
-    #       irecv new epsiode
-    #       add episode to DataLoader
-    #   if DataLoader enough data:
-    #       CNN training
-    #       for all processes in cnncomm
-    #           isend notify new weights
-    #       ibcast new weights
     def run(self) -> None:
         """Run the Process."""
         while True:
@@ -115,7 +106,16 @@ class TrainingProcess(MPIProcess):
 
     def main_step(self) -> None:
         """Run a single step in the process loop."""
-        ...
+        for source in range(self.mpi._wrank):
+            if self.mpi.probe_episode(source):
+                req, states, values, move_tensor = self.mpi.recv_episode(source)
+                item = EpisodeItem(req, states, values, move_tensor)
+                self.queue.add(item)
+
+        if self.queue.num_ready() >= self.episode_batch_num:
+            # Training
+            self.mpi.send_weights_ready()
+            self.mpi.bcast_weights(self.cnn)
 
 
 class InferenceProcess(MPIProcess):
@@ -134,7 +134,7 @@ class InferenceProcess(MPIProcess):
             Constants.move_tensor_shape,
         )
         self.mpi = handler
-        self.leaf_batch_num = config.leaf_batch_num
+        self.leaf_batch_num = config.cnn.leaf_batch_num
 
     def run(self) -> None:
         """Run the Process."""
@@ -149,8 +149,9 @@ class InferenceProcess(MPIProcess):
 
         for nrank in range(cast(int, self.mpi._nsize)):
             if self.mpi.probe_leaf_batch(nrank):
-                leaf_data = self.mpi.recv_leaf_batch(nrank)
-                self.queue.add(leaf_data)
+                req, token, source, data = self.mpi.recv_leaf_batch(nrank)
+                item = LeafItem(req, data, source, token)
+                self.queue.add(item)
 
         if self.queue.num_ready() >= self.leaf_batch_num:
             moves = []

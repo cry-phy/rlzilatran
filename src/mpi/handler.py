@@ -193,7 +193,7 @@ class MPIHandler:
         """Gracefull finalize MPI Environment."""
         MPI.Finalize()
 
-    # Send Episode Data from Observer to Training
+    # --- Send Episode Data from Observer to Training ---
     def send_episode(
         self, states: torch.Tensor, values: torch.Tensor, move_tensor: torch.Tensor
     ) -> None:
@@ -246,8 +246,8 @@ class MPIHandler:
             torch.from_numpy(message["move_tensors"]),
         )
 
-    # -- Distribute Weights from Training to Inference
-    def send_weights_ready(self, size) -> None:
+    # --- Distribute Weights from Training to Inference ---
+    def send_weights_ready(self) -> None:
         """Send data to all processes that weights are ready."""
         empty_msg = np.empty(0, dtype="b")
         for target in self.inference_wranks:
@@ -262,12 +262,12 @@ class MPIHandler:
         empty_msg = np.empty(0, dtype="b")
         self.wcomm.Irecv([empty_msg, MPI.BYTE], 0, int(Tag.NOTIFY_WEIGHTS))
 
-    def bcast_size(self, size: int) -> int:
+    def _bcast_size(self, size: int) -> int:
         """Blocking size distribution to allow for non blocking."""
         size = self.cnncomm.bcast(size, self.TRAINING_WRANK)
         return size
 
-    def bcast_weights(self, model: CNN, size: int) -> None:
+    def bcast_weights(self, model: CNN) -> None:
         """Send Weights to Inference Process.
 
         The weights are flattened and need to be reassembled by the CNN.
@@ -277,7 +277,9 @@ class MPIHandler:
         logger.debug("Broadcasting weights.")
         if self._wrank == self.TRAINING_WRANK:
             bytestream = model.to_bytestream()
+            _ = self._bcast_size(len(bytestream))
         else:
+            size = self._bcast_size(0)
             bytestream = bytearray(size)
         req: MPI.Request = self.cnncomm.Ibcast(
             [bytestream, MPI.FLOAT],

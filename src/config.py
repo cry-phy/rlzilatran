@@ -21,18 +21,26 @@ class OBSConfig(TypedDict):
     agent2: str
 
 
+class CNNConfig(TypedDict):
+    """CNN batch sizes, and others."""
+
+    leaf_batch_num: int
+    episode_batch_num: int
+
+
 class Settings(Dynaconf):
     """Specify data types for Dynaconf settings."""
 
     mpi: MPIConfig
     obs: OBSConfig
+    cnn: CNNConfig
 
     class Config:
         """Configuration for Dynaconf."""
 
         envvar_prefix = "DYNACONF"
         settings_files: ClassVar = ["config.toml"]
-        namespaces: ClassVar = ["mpi", "obs"]
+        namespaces: ClassVar = ["mpi", "obs", "cnn"]
 
         VALIDATORS: ClassVar = [
             Validator("mpi.TRAINING_WRANK", must_exist=True, gt=-1),
