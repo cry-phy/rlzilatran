@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from game.utils.constants import Constants
+from src.cnn import CNN
 
 if TYPE_CHECKING:
     from dynaconf import Dynaconf
@@ -246,7 +247,7 @@ class MPIHandler:
         )
 
     # -- Distribute Weights from Training to Inference
-    def send_weights_ready(self) -> None:
+    def send_weights_ready(self, size) -> None:
         """Send data to all processes that weights are ready."""
         empty_msg = np.empty(0, dtype="b")
         for target in self.inference_wranks:
@@ -261,7 +262,12 @@ class MPIHandler:
         empty_msg = np.empty(0, dtype="b")
         self.wcomm.Irecv([empty_msg, MPI.BYTE], 0, int(Tag.NOTIFY_WEIGHTS))
 
-    def bcast_weights(self, flat_weights: np.ndarray, size: int) -> np.ndarray:
+    def bcast_size(self, size: int) -> int:
+        """Blocking size distribution to allow for non blocking."""
+        size = self.cnncomm.bcast(size, self.TRAINING_WRANK)
+        return size
+
+    def bcast_weights(self, model: CNN, size: int) -> None:
         """Send Weights to Inference Process.
 
         The weights are flattened and need to be reassembled by the CNN.
@@ -269,15 +275,17 @@ class MPIHandler:
         for NCCL direct GPU-GPU interaction.
         """
         logger.debug("Broadcasting weights.")
-        if not self._wrank == self.TRAINING_WRANK:
-            flat_weights = np.empty(size)
+        if self._wrank == self.TRAINING_WRANK:
+            bytestream = model.to_bytestream()
+        else:
+            bytestream = bytearray(size)
         req: MPI.Request = self.cnncomm.Ibcast(
-            [flat_weights, MPI.FLOAT],
+            [bytestream, MPI.FLOAT],
             self._cnn_training_rank,
         )
         if not self._wrank == self.TRAINING_WRANK:
             req.Wait()
-        return flat_weights
+            model.from_bytestream(bytestream)
 
     # -- Synchronize Observer and Agents
     def bcast_decided_move(
@@ -307,7 +315,7 @@ class MPIHandler:
         red_value: float | None = self.ocomm.reduce(value, MPI.SUM, self.OBSERVER_ORANK)
         return red_value
 
-    # -- Leaves from Agents to Inference --
+    # --- Leaves from Agents to Inference ---
     def send_leaf_batch(self, leaf_batch: torch.Tensor) -> int:
         """Send Leaf batch to inference, returning a unique Token."""
         np_leaves = leaf_batch.numpy()
@@ -327,7 +335,7 @@ class MPIHandler:
         req: MPI.Request = self.ncomm.Irecv(message, nsource, int(Tag.LEAF_BATCH))
         return req, nsource, int(message["token"]), torch.from_numpy(message["data"])
 
-    # -- Values from Inference to Agents --
+    # --- Values from Inference to Agents ---
     def send_value_batch(
         self,
         ntarget: int,

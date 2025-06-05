@@ -6,7 +6,6 @@ from dynaconf import Dynaconf
 from src.cnn.loader import get_leaf_loader
 from src.cnn.queue import Queue
 from src.cnn.small import SmallCNN
-import numpy as np
 from src.game.utils.constants import Constants
 from src.mpi.handler import MPIHandler
 
@@ -85,7 +84,20 @@ class MPIProcess:
 class TrainingProcess(MPIProcess):
     """Initialize process running batching and training CNN."""
 
-    # Setup CNN
+    def __init__(self, config: Dynaconf, handler: MPIHandler) -> None:
+        """Initialize CNN inference."""
+        super().__init__()
+        self.queue = Queue(Constants.BATCH_SIZE)
+        self.dataset, self.dataloader = get_leaf_loader(
+            self.queue, Constants.BATCH_SIZE
+        )
+        self.cnn = SmallCNN(
+            128,
+            Constants.state_tensor_shape,
+            Constants.move_tensor_shape,
+        )
+        self.mpi = handler
+        self.episode_batch_num = config.episode_batch_num
 
     # While True:
     #   if new episode:
@@ -122,7 +134,6 @@ class InferenceProcess(MPIProcess):
             Constants.move_tensor_shape,
         )
         self.mpi = handler
-        self.super_batch_size = config.super_batch_size
         self.leaf_batch_num = config.leaf_batch_num
 
     def run(self) -> None:
@@ -134,9 +145,7 @@ class InferenceProcess(MPIProcess):
         """Run a single step in the process loop."""
         if self.mpi.probe_weights_ready():
             self.mpi.recv_weights_ready()
-            flat_weights, size = np.empty(0), 0
-            self.mpi.bcast_weights(flat_weights, size)
-            self.cnn.from_flat(flat_weights)
+            self.cnn.ibcast_weights()
 
         for nrank in range(cast(int, self.mpi._nsize)):
             if self.mpi.probe_leaf_batch(nrank):
@@ -146,12 +155,10 @@ class InferenceProcess(MPIProcess):
         if self.queue.num_ready() >= self.leaf_batch_num:
             moves = []
             values = []
-            for data in self.dataloader():
+            for data in self.dataloader:
                 moves, values = self.cnn.forward(data)
                 moves.append(moves)
                 values.append(values)
-            self.cnn.forward()
-            pass
 
 
 class AgentProcess(MPIProcess):
