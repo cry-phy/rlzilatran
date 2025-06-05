@@ -6,6 +6,7 @@ from dynaconf import Dynaconf
 from src.cnn.loader import get_leaf_loader
 from src.cnn.queue import EpisodeItem, LeafItem, Queue
 from src.cnn.small import SmallCNN
+from src.cnn.trainer import Trainer
 from src.game.utils.constants import Constants
 from src.mpi.handler import MPIHandler
 
@@ -31,7 +32,7 @@ def get_process(config: Dynaconf, handler: MPIHandler) -> MPIProcess:
     """Return the MPIProcess that is supposed to be run on this Rank."""
     logger.debug("Getting processes.")
     if handler._wrank == handler.TRAINING_WRANK:
-        return TrainingProcess()
+        return TrainingProcess(config, handler)
     elif handler._nrank == handler.INFERENCE_NRANK:
         return InferenceProcess(config, handler)
     game: Game = Game.new_game()
@@ -96,6 +97,7 @@ class TrainingProcess(MPIProcess):
             Constants.state_tensor_shape,
             Constants.move_tensor_shape,
         )
+        self.trainer = Trainer.from_config(self.cnn, config)
         self.mpi = handler
         self.episode_batch_num = config.cnn.episode_batch_num
 
@@ -113,7 +115,7 @@ class TrainingProcess(MPIProcess):
                 self.queue.add(item)
 
         if self.queue.num_ready() >= self.episode_batch_num:
-            # Training
+            self.trainer.train(self.dataloader)
             self.mpi.send_weights_ready()
             self.mpi.bcast_weights(self.cnn)
 
