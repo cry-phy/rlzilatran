@@ -5,7 +5,7 @@ from game.utils.constants import Constants
 from src.cnn import CNN
 
 if TYPE_CHECKING:
-    from dynaconf import Dynaconf
+    from src.config import Settings
 
 from enum import IntEnum, auto
 from functools import wraps
@@ -72,13 +72,13 @@ class MPIHandler:
     token = TokenHandler()
     _init = False
 
-    def __new__(cls, config: Dynaconf | None = None) -> "MPIHandler":
+    def __new__(cls, config: Settings | None = None) -> "MPIHandler":
         """Singleton Instance."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, config: Dynaconf | None = None) -> None:
+    def __init__(self, config: Settings | None = None) -> None:
         """Initialize MPI Comms.
 
         Global rank 0:      Training process
