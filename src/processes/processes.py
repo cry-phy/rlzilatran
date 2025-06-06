@@ -1,13 +1,12 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from dynaconf import Dynaconf
-
+from config import Settings
 from cnn.loader import get_leaf_loader
 from cnn.queue import EpisodeItem, LeafItem, Queue
 from cnn.small import SmallCNN
 from cnn.trainer import Trainer
-from game.utils.constants import Constants
+from game.utils import Constants
 from mpi.handler import MPIHandler
 
 if TYPE_CHECKING:
@@ -28,7 +27,7 @@ class ProcessError(Exception):
     """Exeption handling errors with processes."""
 
 
-def get_process(config: Dynaconf, handler: MPIHandler) -> MPIProcess:
+def get_process(config: Settings, handler: MPIHandler) -> MPIProcess:
     """Return the MPIProcess that is supposed to be run on this Rank."""
     logger.debug("Getting processes.")
     if handler._wrank == handler.TRAINING_WRANK:
@@ -85,7 +84,7 @@ class MPIProcess:
 class TrainingProcess(MPIProcess):
     """Initialize process running batching and training CNN."""
 
-    def __init__(self, config: Dynaconf, handler: MPIHandler) -> None:
+    def __init__(self, config: Settings, handler: MPIHandler) -> None:
         """Initialize CNN inference."""
         super().__init__()
         self.queue = Queue(Constants.BATCH_SIZE)
@@ -113,8 +112,10 @@ class TrainingProcess(MPIProcess):
                 req, states, values, move_tensor = self.mpi.recv_episode(source)
                 item = EpisodeItem(req, states, values, move_tensor)
                 self.queue.add(item)
+                logger.debug("Recieved Episode data from %i", source)
 
         if self.queue.num_ready() >= self.episode_batch_num:
+            logger.debug("Starting Training.")
             self.trainer.train(self.dataloader)
             self.mpi.send_weights_ready()
             self.mpi.bcast_weights(self.cnn)
@@ -123,7 +124,7 @@ class TrainingProcess(MPIProcess):
 class InferenceProcess(MPIProcess):
     """Initialize process running Inference of the CNN."""
 
-    def __init__(self, config: Dynaconf, handler: MPIHandler) -> None:
+    def __init__(self, config: Settings, handler: MPIHandler) -> None:
         """Initialize CNN inference."""
         super().__init__()
         self.queue = Queue(Constants.BATCH_SIZE)
@@ -146,19 +147,23 @@ class InferenceProcess(MPIProcess):
     def main_step(self) -> None:
         """Run a single step in the process loop."""
         if self.mpi.probe_weights_ready():
+            logger.debug("Recieving Weights.")
             self.mpi.recv_weights_ready()
             self.cnn.ibcast_weights()
+            logger.debug("Recieved Weights.")
 
         for nrank in range(cast(int, self.mpi._nsize)):
             if self.mpi.probe_leaf_batch(nrank):
                 req, token, source, data = self.mpi.recv_leaf_batch(nrank)
                 item = LeafItem(req, data, source, token)
+                logger.debug("Recieved Episode data from %i", source)
                 self.queue.add(item)
 
         if self.queue.num_ready() >= self.leaf_batch_num:
             moves = []
             values = []
             for data in self.dataloader:
+                logger.debug("Starting inference.")
                 moves, values = self.cnn.forward(data)
                 moves.append(moves)
                 values.append(values)

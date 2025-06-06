@@ -19,7 +19,7 @@ class MinimaxAgent(BaseAgent):
     def __init__(self, game: Game) -> None:
         """Initialize Minimax agent."""
         super().__init__(game)
-        self._depth: int = 5
+        self._depth: int = 3
         self._weights: dict[str, float] = {
             "material": 0,
             "capture": 1,
