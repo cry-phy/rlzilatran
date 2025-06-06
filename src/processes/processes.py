@@ -3,12 +3,12 @@ from typing import TYPE_CHECKING
 
 from dynaconf import Dynaconf
 
-from src.cnn.loader import get_leaf_loader
-from src.cnn.queue import EpisodeItem, LeafItem, Queue
-from src.cnn.small import SmallCNN
-from src.cnn.trainer import Trainer
-from src.game.utils.constants import Constants
-from src.mpi.handler import MPIHandler
+from cnn.loader import get_leaf_loader
+from cnn.queue import EpisodeItem, LeafItem, Queue
+from cnn.small import SmallCNN
+from cnn.trainer import Trainer
+from game.utils.constants import Constants
+from mpi.handler import MPIHandler
 
 if TYPE_CHECKING:
     from agents import BaseAgent

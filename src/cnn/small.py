@@ -1,6 +1,6 @@
 from torch import nn
 
-from src.cnn import CNN
+from cnn.base_cnn import CNN
 
 
 class SmallCNN(CNN):

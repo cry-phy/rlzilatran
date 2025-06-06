@@ -1,7 +1,7 @@
 from torch import nn, optim
 from torch.utils.data import DataLoader
-from src.cnn.base_cnn import CNN
-from src.config import Settings
+from cnn.base_cnn import CNN
+from config import Settings
 
 
 class Trainer:

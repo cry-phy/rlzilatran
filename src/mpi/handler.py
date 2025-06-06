@@ -2,10 +2,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from game.utils.constants import Constants
-from src.cnn import CNN
+from cnn import CNN
 
 if TYPE_CHECKING:
-    from src.config import Settings
+    from config import Settings
 
 from enum import IntEnum, auto
 from functools import wraps

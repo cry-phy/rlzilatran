@@ -1,7 +1,7 @@
 from typing import TypedDict, ClassVar
 from dynaconf import Dynaconf, Validator
 
-from src.agents.base import agent_class_dict
+from agents import agent_class_dict
 
 
 class MPIConfig(TypedDict):
@@ -49,7 +49,7 @@ class Settings(Dynaconf):
             Validator("mpi.MPI_SHUTDOWN_WAIT", must_exist=True, gt=0),
             Validator("obs.agent1", must_exist=True),
             Validator("obs.agent2", must_exist=True),
-            Validator("obs.GUI", default=True),
+            Validator("obs.GUI", must_exist=False),
         ]
 
 
@@ -60,7 +60,8 @@ def get_config() -> Settings:
     """Generate and return the configuration."""
     global _config
     if _config is None:
-        _config = Settings()
+        _config = Settings(settings_files=["config.toml"], environments=False)
         _config.agent_class_dict = agent_class_dict()
         _config.validators.validate(_config)
+    print(_config.to_dict())
     return _config

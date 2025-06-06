@@ -5,7 +5,7 @@ Dataloaders, Datasets and corresponding Utilities.
 
 from .queue import Queue
 from .small import SmallCNN
-from loader import get_leaf_loader
+from .loader import get_leaf_loader
 from .base_cnn import CNN
 
 __all__ = [
