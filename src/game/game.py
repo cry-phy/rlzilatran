@@ -108,10 +108,11 @@ class Game:
     def move_mask(self) -> torch.Tensor:
         """Get mask for viable moves in move tensor."""
         own_positions = torch.where(self.state.get_player_mask(self.state.player))
-        mask = self.full_move_tensor(False)
+        mask = self.full_move_tensor(False).to(dtype=torch.bool)
         for x, y in zip(*own_positions, strict=True):
             move_x, move_y = self.get_piece_targets(x, y).T
             mask[x, y, Translator.index_from_move(move_x, move_y)] = True
+        print("MASKMASK", mask.dtype)
         return mask
 
     # State

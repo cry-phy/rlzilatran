@@ -15,7 +15,8 @@ logger: logging.Logger = logging.getLogger(__name__)
 def bwr_colormap(values: torch.Tensor, eps: float = 1e-8) -> list[str]:
     """BWR cmap to #RRGGBB hex codes."""
     hex_colors = []
-
+    if torch.all(values == 0):
+        return ["#FFFFFF"] * len(values)
     for v in values:
         mapped_value = (torch.tanh(v) + 1) / 2
         if mapped_value <= 0.5:

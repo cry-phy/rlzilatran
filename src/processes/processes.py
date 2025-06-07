@@ -7,7 +7,7 @@ from cnn.queue import EpisodeItem, LeafItem, Queue
 from cnn.small import SmallCNN
 from cnn.trainer import Trainer
 from game.utils import Constants
-from mpi.handler import MPIHandler
+from mpi.handler import MPIHandler, gracefull_error
 
 if TYPE_CHECKING:
     from agents import BaseAgent
@@ -244,6 +244,7 @@ class ObserverProcess(MPIProcess):
             self.obs.send_epsiode()
             self.obs.reset_data()
 
+    @gracefull_error
     def generate_move_tensor(self, agent: BaseAgent) -> tuple[torch.Tensor, float]:
         """Centralize move tensor generation."""
         agent.generate_move_tensor()
@@ -252,6 +253,7 @@ class ObserverProcess(MPIProcess):
         value = cast(float, agent.reduce_values())
         return move_tensor, value
 
+    @gracefull_error
     def decide_make_move(self, agent: BaseAgent, move_tensor: torch.Tensor) -> None:
         """Centralize move decision and making."""
         move = agent.generate_move(move_tensor)
@@ -277,6 +279,7 @@ class UIObserverProcess(ObserverProcess):
         self.obs: UIObserver = cast(
             UIObserver, UIObserver.any_vs_any(game, agent_cls1, agent_cls2)
         )
+        self.num_moves = 0
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
@@ -297,6 +300,7 @@ class UIObserverProcess(ObserverProcess):
             self.decide_make_move(current_agent, move_tensor)
             self.obs.redraw_board()
             self.obs.add_data(state_tensor, value, move_tensor)
+            self.num_moves += 1
 
             if current_agent.clickable:
                 self.obs.post_clickable_input()
@@ -304,6 +308,6 @@ class UIObserverProcess(ObserverProcess):
         if not self.obs.game.game_over():
             self.obs.wait(self.main_step)
         else:
-            logger.info("Game over.")
+            logger.info("Game over. Total moves: %i", self.num_moves)
             self.obs.reset()
             self.obs.wait(self.main_step)
