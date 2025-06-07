@@ -38,7 +38,7 @@ def main():
     """Run central loop."""
     wcomm = MPI.COMM_WORLD
     wrank = wcomm.Get_rank()
-    setup_logging(wrank, logging.DEBUG)
+    setup_logging(wrank, logging.INFO)
     logger = logging.getLogger(__name__)
     logger.info("Logging initialized.")
 

@@ -112,7 +112,6 @@ class Game:
         for x, y in zip(*own_positions, strict=True):
             move_x, move_y = self.get_piece_targets(x, y).T
             mask[x, y, Translator.index_from_move(move_x, move_y)] = True
-        print("MASKMASK", mask.dtype)
         return mask
 
     # State

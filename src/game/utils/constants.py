@@ -151,7 +151,7 @@ class __Constants:
 
     @property
     def state_tensor_shape(self) -> tuple[int, int, int]:
-        return (*self.board_size, self.CHANNEL_NUMBER)
+        return (self.CHANNEL_NUMBER, *self.board_size)
 
     @property
     def state_tensor_batch_shape(self) -> tuple[int, int, int, int]:

@@ -53,7 +53,7 @@ class Queue(Generic[Item]):
 
     def num_ready(self) -> int:
         """Determine number of currently resolved requests, generates the corresponding mask."""
-        return self.gen_readiness.sum().item()
+        return int(self.gen_readiness().sum())
 
     def retrieve_ready(self) -> list[Item]:
         """Retrieve and remove ready items."""

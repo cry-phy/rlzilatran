@@ -115,7 +115,7 @@ class TrainingProcess(MPIProcess):
                 logger.debug("Recieved Episode data from %i", source)
 
         if self.queue.num_ready() >= self.episode_batch_num:
-            logger.debug("Starting Training.")
+            logger.info("Starting Training.")
             self.trainer.train(self.dataloader)
             self.mpi.send_weights_ready()
             self.mpi.bcast_weights(self.cnn)
@@ -147,23 +147,23 @@ class InferenceProcess(MPIProcess):
     def main_step(self) -> None:
         """Run a single step in the process loop."""
         if self.mpi.probe_weights_ready():
-            logger.debug("Recieving Weights.")
+            logger.into("Recieving Weights.")
             self.mpi.recv_weights_ready()
             self.cnn.ibcast_weights()
-            logger.debug("Recieved Weights.")
+            logger.info("Recieved Weights.")
 
         for nrank in range(cast(int, self.mpi._nsize)):
             if self.mpi.probe_leaf_batch(nrank):
                 req, token, source, data = self.mpi.recv_leaf_batch(nrank)
                 item = LeafItem(req, data, source, token)
-                logger.debug("Recieved Episode data from %i", source)
+                logger.info("Recieved Episode data from %i", source)
                 self.queue.add(item)
 
         if self.queue.num_ready() >= self.leaf_batch_num:
             moves = []
             values = []
             for data in self.dataloader:
-                logger.debug("Starting inference.")
+                logger.info("Starting inference.")
                 moves, values = self.cnn.forward(data)
                 moves.append(moves)
                 values.append(values)
@@ -241,6 +241,7 @@ class ObserverProcess(MPIProcess):
     def _send_episode(self) -> None:
         """Send episode batch to Training."""
         if self.obs.batch_ready():
+            logger.info("Sending Episode.")
             self.obs.send_epsiode()
             self.obs.reset_data()
 
@@ -300,6 +301,7 @@ class UIObserverProcess(ObserverProcess):
             self.decide_make_move(current_agent, move_tensor)
             self.obs.redraw_board()
             self.obs.add_data(state_tensor, value, move_tensor)
+            self._send_episode()
             self.num_moves += 1
 
             if current_agent.clickable:

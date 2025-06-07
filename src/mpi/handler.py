@@ -50,10 +50,11 @@ class TokenHandler:
     def empty_message(self, data_shape: tuple) -> np.ndarray:
         """Generate an empty message buffer."""
         message: np.ndarray = np.empty(
+            1,
             dtype=[
                 ("token", "i8"),
                 ("data", "f4", *data_shape),
-            ]
+            ],
         )
         return message
 
@@ -202,15 +203,16 @@ class MPIHandler:
         np_values = values.numpy()
         np_move_tensors = move_tensor.numpy()
         message: np.ndarray = np.empty(
+            Constants.BATCH_SIZE,
             dtype=[
                 ("states", "f4", Constants.state_tensor_batch_shape),
                 ("values", "f4", Constants.value_batch_shape),
                 ("move_tensor", "f4", Constants.move_tensor_batch_shape),
-            ]
+            ],
         )
         message["states"] = np_states
         message["values"] = np_values
-        message["move_tensors"] = np_move_tensors
+        message["move_tensor"] = np_move_tensors
         self.wcomm.Isend(
             [message, MPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE_STATES)
         )
@@ -230,11 +232,12 @@ class MPIHandler:
         Using a future apporach as it allows for gathering without inhibiting.
         """
         message: np.ndarray = np.empty(
+            Constants.BATCH_SIZE,
             dtype=[
                 ("states", "f4", Constants.state_tensor_batch_shape),
                 ("values", "f4", Constants.value_batch_shape),
                 ("move_tensor", "f4", Constants.move_tensor_batch_shape),
-            ]
+            ],
         )
         req: MPI.Request = self.wcomm.Irecv(
             [message, MPI.BYTE], source, int(Tag.EPISODE_STATES)
@@ -349,11 +352,12 @@ class MPIHandler:
         np_values = values.numpy()
         np_move_tensors = move_tensors.numpy()
         message: np.ndarray = np.empty(
+            Constants.BATCH_SIZE,
             dtype=[
                 ("token", "i8"),
                 ("values", "f4", *Constants.value_batch_shape),
                 ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
-            ]
+            ],
         )
         message["token"] = token
         message["values"] = np_values
@@ -367,11 +371,12 @@ class MPIHandler:
     def recv_value_batch(self) -> tuple[int, torch.Tensor, torch.Tensor]:
         """Recieve Value and move tensor batch from Agent on nrank."""
         message: np.ndarray = np.empty(
+            Constants.BATCH_SIZE,
             dtype=[
                 ("token", "i8"),
                 ("values", "f4", *Constants.value_batch_shape),
                 ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
-            ]
+            ],
         )
         self.ncomm.Recv([message, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
         return (
