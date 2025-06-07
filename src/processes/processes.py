@@ -234,17 +234,9 @@ class ObserverProcess(MPIProcess):
         """Observer rank Control Flow."""
         state_tensor = self.obs.game.state_tensor
         current_agent = self.obs.agents[self.obs.game.state.player]
-        current_agent.generate_move_tensor()
-        logger.debug("Generated Move")
-        sum_move_tensor = current_agent.reduce_move_tensors()
-        sum_value = cast(float, current_agent.reduce_values())
-        move_tensor = sum_move_tensor
-        move = current_agent.generate_move(move_tensor)
-        logger.debug("Sending Move.")
-        bcast_move = current_agent.bcast_move(move)
-        current_agent.make_move(*bcast_move)
-        logger.info("Move Executed: %s", bcast_move)
-        self.obs.add_data(state_tensor, sum_value, move_tensor)
+        move_tensor, value = self.generate_move_tensor(current_agent)
+        self.decide_make_move(current_agent, move_tensor)
+        self.obs.add_data(state_tensor, value, move_tensor)
 
     def _send_episode(self) -> None:
         """Send episode batch to Training."""
@@ -252,11 +244,27 @@ class ObserverProcess(MPIProcess):
             self.obs.send_epsiode()
             self.obs.reset_data()
 
+    def generate_move_tensor(self, agent: BaseAgent) -> tuple[torch.Tensor, float]:
+        """Centralize move tensor generation."""
+        agent.generate_move_tensor()
+        logger.debug("Generated Move Tensor.")
+        move_tensor = agent.reduce_move_tensors()
+        value = cast(float, agent.reduce_values())
+        return move_tensor, value
 
-class UIObserverProcess(MPIProcess):
+    def decide_make_move(self, agent: BaseAgent, move_tensor: torch.Tensor) -> None:
+        """Centralize move decision and making."""
+        move = agent.generate_move(move_tensor)
+        logger.debug("Sending Move.")
+        bcast_move = agent.bcast_move(move)
+        agent.make_move(*bcast_move)
+        logger.info("Move Executed: %s", bcast_move)
+
+
+class UIObserverProcess(ObserverProcess):
     """Observer process able to handle User Interface.
 
-    !!! Do not run on Cluster since main loop is not secured against crashes.
+    !!! Do not run on Cluster since main loop is not properly secured against crashes.
     """
 
     def __init__(
@@ -265,8 +273,7 @@ class UIObserverProcess(MPIProcess):
         agent_cls1: type[BaseAgent],
         agent_cls2: type[BaseAgent],
     ) -> None:
-        """Set up observer and distribute game anda agents."""
-        super().__init__()
+        """Set up observer and distribute game and agents."""
         self.obs: UIObserver = cast(
             UIObserver, UIObserver.any_vs_any(game, agent_cls1, agent_cls2)
         )
@@ -285,21 +292,11 @@ class UIObserverProcess(MPIProcess):
             self.obs.pre_clickable_input()
 
         if current_agent.move_ready:
-            current_agent.generate_move_tensor()
-            logger.debug("Generated Move")
-            sum_move_tensor = current_agent.reduce_move_tensors()
-            sum_value = cast(float, current_agent.reduce_values())
-            move_tensor = sum_move_tensor
-            torch.save(move_tensor, "temp/move_tensor1.txt")
+            move_tensor, value = self.generate_move_tensor(current_agent)
             self.obs.draw_move_tensor(move_tensor)
-            move = current_agent.generate_move(move_tensor)
-            logger.debug("Sending Move.")
-            bcast_move = current_agent.bcast_move(move)
-            logger.debug("Decided Move %s.", bcast_move)
-            current_agent.make_move(*bcast_move)
-            logger.info("Move Executed: %s", bcast_move)
+            self.decide_make_move(current_agent, move_tensor)
             self.obs.redraw_board()
-            self.obs.add_data(state_tensor, sum_value, move_tensor)
+            self.obs.add_data(state_tensor, value, move_tensor)
 
             if current_agent.clickable:
                 self.obs.post_clickable_input()
