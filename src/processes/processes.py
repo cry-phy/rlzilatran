@@ -1,6 +1,14 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+from config import Settings
+from cnn.loader import get_episode_loader, get_leaf_loader
+from cnn.queue import EpisodeItem, LeafItem, Queue
+from cnn.small import SmallCNN
+from cnn.trainer import Trainer
+from game.utils import Constants
+from mpi.handler import MPIHandler, gracefull_error
+
 if TYPE_CHECKING:
     from agents import BaseAgent
 
@@ -19,13 +27,13 @@ class ProcessError(Exception):
     """Exeption handling errors with processes."""
 
 
-def get_process(config, handler) -> MPIProcess:
+def get_process(config: Settings, handler: MPIHandler) -> MPIProcess:
     """Return the MPIProcess that is supposed to be run on this Rank."""
     logger.debug("Getting processes.")
     if handler._wrank == handler.TRAINING_WRANK:
-        return TrainingProcess()
+        return TrainingProcess(config, handler)
     elif handler._nrank == handler.INFERENCE_NRANK:
-        return InferenceProcess()
+        return InferenceProcess(config, handler)
     game: Game = Game.new_game()
     agent_cls1: type[BaseAgent] = config.agent_class_dict[config.obs.agent1]
     agent_cls2: type[BaseAgent] = config.agent_class_dict[config.obs.agent2]
@@ -66,8 +74,7 @@ class MPIProcess:
 
     def run(self) -> None:
         """Run the Process."""
-        while True:
-            self.main_step()
+        raise NotImplementedError
 
     def main_step(self) -> None:
         """Run a single step in the process loop."""
@@ -77,43 +84,91 @@ class MPIProcess:
 class TrainingProcess(MPIProcess):
     """Initialize process running batching and training CNN."""
 
-    # Setup CNN
+    def __init__(self, config: Settings, handler: MPIHandler) -> None:
+        """Initialize CNN inference."""
+        super().__init__()
+        self.queue = Queue(Constants.BATCH_SIZE)
+        self.dataset, self.dataloader = get_episode_loader(
+            self.queue, Constants.BATCH_SIZE
+        )
+        self.cnn = SmallCNN(
+            128,
+            Constants.state_tensor_shape,
+            Constants.move_tensor_shape,
+        )
+        self.trainer = Trainer.from_config(self.cnn, config)
+        self.mpi = handler
+        self.episode_batch_num = config.cnn.episode_batch_num
 
-    # While True:
-    #   if new episode:
-    #       irecv new epsiode
-    #       add episode to DataLoader
-    #   if DataLoader enough data:
-    #       CNN training
-    #       for all processes in cnncomm
-    #           isend notify new weights
-    #       ibcast new weights
+    def run(self) -> None:
+        """Run the Process."""
+        while True:
+            self.main_step()
 
+    @gracefull_error
     def main_step(self) -> None:
         """Run a single step in the process loop."""
-        ...
+        for source in range(self.mpi._wsize):
+            if self.mpi.probe_episode(source):
+                req, states, values, move_tensor = self.mpi.recv_episode(source)
+                item = EpisodeItem(req, states, values, move_tensor)
+                self.queue.add(item)
+                logger.info("Recieved Episode data from %i", source)
+
+        if self.queue.num_ready() >= self.episode_batch_num:
+            logger.info("Starting Training.")
+            self.trainer.train(self.dataloader)
+            self.mpi.send_weights_ready()
+            self.mpi.bcast_weights(self.cnn)
 
 
 class InferenceProcess(MPIProcess):
     """Initialize process running Inference of the CNN."""
 
-    # Setup CNN
+    def __init__(self, config: Settings, handler: MPIHandler) -> None:
+        """Initialize CNN inference."""
+        super().__init__()
+        self.queue = Queue(Constants.BATCH_SIZE)
+        self.dataset, self.dataloader = get_leaf_loader(
+            self.queue, Constants.BATCH_SIZE
+        )
+        self.cnn = SmallCNN(
+            128,
+            Constants.state_tensor_shape,
+            Constants.move_tensor_shape,
+        )
+        self.mpi = handler
+        self.leaf_batch_num = config.cnn.leaf_batch_num
 
-    # While True:
-    #   if notify new weights exist:
-    #       recv notify new weights
-    #       ibcast new weights
-    #   if leaf batch:
-    #       irecv leaf batch
-    #       add leaf batch to DataLoader
-    #   if DataLoader enough data:
-    #       Inference on DataLoader
-    #       for value batch in infered data:
-    #           isend value batch
+    def run(self) -> None:
+        """Run the Process."""
+        while True:
+            self.main_step()
 
+    @gracefull_error
     def main_step(self) -> None:
         """Run a single step in the process loop."""
-        ...
+        if self.mpi.probe_weights_ready():
+            logger.info("Recieving Weights.")
+            self.mpi.recv_weights_ready()
+            self.mpi.bcast_weights(self.cnn)
+            logger.info("Recieved Weights.")
+
+        for nrank in range(cast(int, self.mpi._nsize)):
+            if self.mpi.probe_leaf_batch(nrank):
+                req, token, source, data = self.mpi.recv_leaf_batch(nrank)
+                item = LeafItem(req, data, source, token)
+                logger.info("Recieved Episode data from %i", source)
+                self.queue.add(item)
+
+        if self.queue.num_ready() >= self.leaf_batch_num:
+            moves = []
+            values = []
+            for data in self.dataloader:
+                logger.info("Starting inference.")
+                moves, values = self.cnn.forward(data)
+                moves.append(moves)
+                values.append(values)
 
 
 class AgentProcess(MPIProcess):
@@ -181,29 +236,40 @@ class ObserverProcess(MPIProcess):
         """Observer rank Control Flow."""
         state_tensor = self.obs.game.state_tensor
         current_agent = self.obs.agents[self.obs.game.state.player]
-        current_agent.generate_move_tensor()
-        logger.debug("Generated Move")
-        sum_move_tensor = current_agent.reduce_move_tensors()
-        sum_value = cast(float, current_agent.reduce_values())
-        move_tensor = sum_move_tensor
-        move = current_agent.generate_move(move_tensor)
-        logger.debug("Sending Move.")
-        bcast_move = current_agent.bcast_move(move)
-        current_agent.make_move(*bcast_move)
-        logger.info("Move Executed: %s", bcast_move)
-        self.obs.add_data(state_tensor, sum_value, move_tensor)
+        move_tensor, value = self.generate_move_tensor(current_agent)
+        self.decide_make_move(current_agent, move_tensor)
+        self.obs.add_data(state_tensor, value, move_tensor)
 
     def _send_episode(self) -> None:
         """Send episode batch to Training."""
         if self.obs.batch_ready():
+            logger.info("Sending Episode.")
             self.obs.send_epsiode()
             self.obs.reset_data()
 
+    @gracefull_error
+    def generate_move_tensor(self, agent: BaseAgent) -> tuple[torch.Tensor, float]:
+        """Centralize move tensor generation."""
+        agent.generate_move_tensor()
+        logger.debug("Generated Move Tensor.")
+        move_tensor = agent.reduce_move_tensors()
+        value = cast(float, agent.reduce_values())
+        return move_tensor, value
 
-class UIObserverProcess(MPIProcess):
+    @gracefull_error
+    def decide_make_move(self, agent: BaseAgent, move_tensor: torch.Tensor) -> None:
+        """Centralize move decision and making."""
+        move = agent.generate_move(move_tensor)
+        logger.debug("Sending Move.")
+        bcast_move = agent.bcast_move(move)
+        agent.make_move(*bcast_move)
+        logger.info("Move Executed: %s", bcast_move)
+
+
+class UIObserverProcess(ObserverProcess):
     """Observer process able to handle User Interface.
 
-    !!! Do not run on Cluster since main loop is not secured against crashes.
+    !!! Do not run on Cluster since main loop is not properly secured against crashes.
     """
 
     def __init__(
@@ -212,11 +278,11 @@ class UIObserverProcess(MPIProcess):
         agent_cls1: type[BaseAgent],
         agent_cls2: type[BaseAgent],
     ) -> None:
-        """Set up observer and distribute game anda agents."""
-        super().__init__()
+        """Set up observer and distribute game and agents."""
         self.obs: UIObserver = cast(
             UIObserver, UIObserver.any_vs_any(game, agent_cls1, agent_cls2)
         )
+        self.num_moves = 0
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
@@ -232,21 +298,13 @@ class UIObserverProcess(MPIProcess):
             self.obs.pre_clickable_input()
 
         if current_agent.move_ready:
-            current_agent.generate_move_tensor()
-            logger.debug("Generated Move")
-            sum_move_tensor = current_agent.reduce_move_tensors()
-            sum_value = cast(float, current_agent.reduce_values())
-            move_tensor = sum_move_tensor
-            torch.save(move_tensor, "temp/move_tensor1.txt")
+            move_tensor, value = self.generate_move_tensor(current_agent)
             self.obs.draw_move_tensor(move_tensor)
-            move = current_agent.generate_move(move_tensor)
-            logger.debug("Sending Move.")
-            bcast_move = current_agent.bcast_move(move)
-            logger.debug("Decided Move %s.", bcast_move)
-            current_agent.make_move(*bcast_move)
-            logger.info("Move Executed: %s", bcast_move)
+            self.decide_make_move(current_agent, move_tensor)
             self.obs.redraw_board()
-            self.obs.add_data(state_tensor, sum_value, move_tensor)
+            self.obs.add_data(state_tensor, value, move_tensor)
+            self._send_episode()
+            self.num_moves += 1
 
             if current_agent.clickable:
                 self.obs.post_clickable_input()
@@ -254,6 +312,6 @@ class UIObserverProcess(MPIProcess):
         if not self.obs.game.game_over():
             self.obs.wait(self.main_step)
         else:
-            logger.info("Game over.")
+            logger.info("Game over. Total moves: %i", self.num_moves)
             self.obs.reset()
             self.obs.wait(self.main_step)

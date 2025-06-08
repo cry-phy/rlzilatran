@@ -19,7 +19,7 @@ class MinimaxAgent(BaseAgent):
     def __init__(self, game: Game) -> None:
         """Initialize Minimax agent."""
         super().__init__(game)
-        self._depth: int = 5
+        self._depth: int = 3
         self._weights: dict[str, float] = {
             "material": 0,
             "capture": 1,
@@ -129,9 +129,20 @@ class MinimaxAgent(BaseAgent):
         int | torch.Tensor,
     ]:
         """Generate a move for the current game."""
-        shifted_flat = move_tensor.flatten() - move_tensor.min()
-        move_propabilities = shifted_flat / shifted_flat.sum()
-        move_flat_index = torch.multinomial(move_propabilities, 1)
+        valid_mask = self._game.move_mask()
+        probabilities = torch.zeros_like(move_tensor, dtype=torch.float32)
+        valid_scores = move_tensor[valid_mask]
+        if valid_scores.numel() == 0:
+            raise ValueError("Cannot generate a move when no valid moves exist.")
+        shifted_scores = valid_scores - valid_scores.min()
+        if shifted_scores.sum() <= 1e-9:
+            logger.debug("All moves have the same advantage. Picking at random.")
+            probabilities[valid_mask] = 1.0
+        else:
+            probabilities[valid_mask] = shifted_scores
+        probabilities_flat = probabilities.flatten()
+        probabilities_flat /= probabilities_flat.sum() + 1e-9
+        move_flat_index = torch.multinomial(probabilities_flat, 1)
         move_indices = torch.unravel_index(move_flat_index, move_tensor.shape)
         logger.debug("Suggesting move: %s", move_indices)
         x1: torch.Tensor = move_indices[0]
@@ -139,8 +150,8 @@ class MinimaxAgent(BaseAgent):
         x2, y2, flag = self._game.move_from_index(move_indices[2])
         return x1, y1, x2, y2, flag
 
-    def generate_move_tensor(self) -> None:
-        """Generate move tensor for the subset of tasks for this rank."""
+    def generate_tasks(self) -> torch.Tensor:
+        """Assign tasks to specific worker processes in the observers comm."""
         move_list = self._game.all_moves()
         # allocate moves to specific ranks
         all_moves = torch.stack(move_list).T
@@ -156,8 +167,12 @@ class MinimaxAgent(BaseAgent):
         start_index = start_indices_per_rank[self.mpi._orank]
         end_index = end_indices_per_rank[self.mpi._orank]
         task_moves = all_moves[start_index:end_index]
+        logger.debug("Assigned moves %i:%i.", start_index, end_index)
+        return task_moves
 
-        logger.debug("Running moves %i:%i.", start_index, end_index)
+    def generate_move_tensor(self) -> None:
+        """Generate move tensor for the subset of tasks for this rank."""
+        task_moves = self.generate_tasks()
 
         # Evaluate
         move_valuations = self._game.full_move_tensor(0)
@@ -177,4 +192,4 @@ class MinimaxAgent(BaseAgent):
         )
         self.counter = 0
         self._value = float(torch.max(move_valuations))
-        self._move_tensor = move_valuations + torch.min(move_valuations)
+        self._move_tensor = move_valuations

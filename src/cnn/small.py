@@ -1,7 +1,9 @@
 from torch import nn
 
+from cnn.base_cnn import CNN
 
-class SmallCNN(nn.Module):
+
+class SmallCNN(CNN):
     """Small CNN fof testing Datatloader and procedures."""
 
     def __init__(

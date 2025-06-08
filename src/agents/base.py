@@ -152,7 +152,7 @@ class BaseAgent:
 
     def selected_positions(self) -> list[tuple[int, int]]:
         """Get currently propable moves."""
-        raise NotImplementedError
+        return []
 
     def possible_moves(self, x: int, y: int) -> list[tuple[int, int]]:
         """Get currently propable moves."""

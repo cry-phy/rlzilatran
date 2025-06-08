@@ -1,10 +1,11 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from game.utils import Constants
+from game.utils.constants import Constants
+from cnn import CNN
 
 if TYPE_CHECKING:
-    from dynaconf import Dynaconf
+    from config import Settings
 
 from enum import IntEnum, auto
 from functools import wraps
@@ -24,8 +25,7 @@ class Tag(IntEnum):
     """Make tags easier to understand."""
 
     EXIT = auto()
-    EPISODE_STATES = auto()
-    EPISODE_VALUES = auto()
+    EPISODE = auto()
     NOTIFY_WEIGHTS = auto()
     LEAF_BATCH = auto()
     VALUE_BATCH = auto()
@@ -49,10 +49,11 @@ class TokenHandler:
     def empty_message(self, data_shape: tuple) -> np.ndarray:
         """Generate an empty message buffer."""
         message: np.ndarray = np.empty(
+            1,
             dtype=[
                 ("token", "i8"),
                 ("data", "f4", *data_shape),
-            ]
+            ],
         )
         return message
 
@@ -71,13 +72,13 @@ class MPIHandler:
     token = TokenHandler()
     _init = False
 
-    def __new__(cls, config: Dynaconf | None = None) -> "MPIHandler":
+    def __new__(cls, config: Settings | None = None) -> "MPIHandler":
         """Singleton Instance."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, config: Dynaconf | None = None) -> None:
+    def __init__(self, config: Settings | None = None) -> None:
         """Initialize MPI Comms.
 
         Global rank 0:      Training process
@@ -192,7 +193,7 @@ class MPIHandler:
         """Gracefull finalize MPI Environment."""
         MPI.Finalize()
 
-    # Send Episode Data from Observer to Training
+    # --- Send Episode Data from Observer to Training ---
     def send_episode(
         self, states: torch.Tensor, values: torch.Tensor, move_tensor: torch.Tensor
     ) -> None:
@@ -201,24 +202,21 @@ class MPIHandler:
         np_values = values.numpy()
         np_move_tensors = move_tensor.numpy()
         message: np.ndarray = np.empty(
+            1,
             dtype=[
                 ("states", "f4", Constants.state_tensor_batch_shape),
                 ("values", "f4", Constants.value_batch_shape),
                 ("move_tensor", "f4", Constants.move_tensor_batch_shape),
-            ]
+            ],
         )
         message["states"] = np_states
         message["values"] = np_values
-        message["move_tensors"] = np_move_tensors
-        self.wcomm.Isend(
-            [message, MPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE_STATES)
-        )
+        message["move_tensor"] = np_move_tensors
+        self.wcomm.Isend([message, MPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE))
 
     def probe_episode(self, source: int) -> bool:
         """Probe if episode was sent from rank."""
-        return self.wcomm.Iprobe(source, int(Tag.EPISODE_STATES)) and self.wcomm.iprobe(
-            source, int(Tag.EPISODE_VALUES)
-        )
+        return self.wcomm.Iprobe(source, int(Tag.EPISODE))
 
     def recv_episode(
         self, source: int
@@ -229,23 +227,24 @@ class MPIHandler:
         Using a future apporach as it allows for gathering without inhibiting.
         """
         message: np.ndarray = np.empty(
+            Constants.BATCH_SIZE,
             dtype=[
                 ("states", "f4", Constants.state_tensor_batch_shape),
                 ("values", "f4", Constants.value_batch_shape),
                 ("move_tensor", "f4", Constants.move_tensor_batch_shape),
-            ]
+            ],
         )
         req: MPI.Request = self.wcomm.Irecv(
-            [message, MPI.BYTE], source, int(Tag.EPISODE_STATES)
+            [message, MPI.BYTE], source, int(Tag.EPISODE)
         )
         return (
             req,
             torch.from_numpy(message["states"]),
             torch.from_numpy(message["values"]),
-            torch.from_numpy(message["move_tensors"]),
+            torch.from_numpy(message["move_tensor"]),
         )
 
-    # -- Distribute Weights from Training to Inference
+    # --- Distribute Weights from Training to Inference ---
     def send_weights_ready(self) -> None:
         """Send data to all processes that weights are ready."""
         empty_msg = np.empty(0, dtype="b")
@@ -261,7 +260,12 @@ class MPIHandler:
         empty_msg = np.empty(0, dtype="b")
         self.wcomm.Irecv([empty_msg, MPI.BYTE], 0, int(Tag.NOTIFY_WEIGHTS))
 
-    def bcast_weights(self, flat_weights: np.ndarray, size: int) -> np.ndarray:
+    def _bcast_size(self, size: int) -> int:
+        """Blocking size distribution to allow for non blocking."""
+        size = self.cnncomm.bcast(size, self.TRAINING_WRANK)
+        return size
+
+    def bcast_weights(self, model: CNN) -> None:
         """Send Weights to Inference Process.
 
         The weights are flattened and need to be reassembled by the CNN.
@@ -269,15 +273,19 @@ class MPIHandler:
         for NCCL direct GPU-GPU interaction.
         """
         logger.debug("Broadcasting weights.")
-        if not self._wrank == self.TRAINING_WRANK:
-            flat_weights = np.empty(size)
+        if self._wrank == self.TRAINING_WRANK:
+            bytestream = model.to_bytestream()
+            _ = self._bcast_size(len(bytestream))
+        else:
+            size = self._bcast_size(0)
+            bytestream = bytearray(size)
         req: MPI.Request = self.cnncomm.Ibcast(
-            [flat_weights, MPI.FLOAT],
+            [bytestream, MPI.BYTE],
             self._cnn_training_rank,
         )
         if not self._wrank == self.TRAINING_WRANK:
             req.Wait()
-        return flat_weights
+            model.from_bytestream(bytestream)
 
     # -- Synchronize Observer and Agents
     def bcast_decided_move(
@@ -307,7 +315,7 @@ class MPIHandler:
         red_value: float | None = self.ocomm.reduce(value, MPI.SUM, self.OBSERVER_ORANK)
         return red_value
 
-    # -- Leaves from Agents to Inference --
+    # --- Leaves from Agents to Inference ---
     def send_leaf_batch(self, leaf_batch: torch.Tensor) -> int:
         """Send Leaf batch to inference, returning a unique Token."""
         np_leaves = leaf_batch.numpy()
@@ -327,7 +335,7 @@ class MPIHandler:
         req: MPI.Request = self.ncomm.Irecv(message, nsource, int(Tag.LEAF_BATCH))
         return req, nsource, int(message["token"]), torch.from_numpy(message["data"])
 
-    # -- Values from Inference to Agents --
+    # --- Values from Inference to Agents ---
     def send_value_batch(
         self,
         ntarget: int,
@@ -339,11 +347,12 @@ class MPIHandler:
         np_values = values.numpy()
         np_move_tensors = move_tensors.numpy()
         message: np.ndarray = np.empty(
+            Constants.BATCH_SIZE,
             dtype=[
                 ("token", "i8"),
                 ("values", "f4", *Constants.value_batch_shape),
                 ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
-            ]
+            ],
         )
         message["token"] = token
         message["values"] = np_values
@@ -357,11 +366,12 @@ class MPIHandler:
     def recv_value_batch(self) -> tuple[int, torch.Tensor, torch.Tensor]:
         """Recieve Value and move tensor batch from Agent on nrank."""
         message: np.ndarray = np.empty(
+            Constants.BATCH_SIZE,
             dtype=[
                 ("token", "i8"),
                 ("values", "f4", *Constants.value_batch_shape),
                 ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
-            ]
+            ],
         )
         self.ncomm.Recv([message, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
         return (
@@ -412,7 +422,7 @@ def gracefull_error(func):
             exc_type, exc_value, exc_tb = sys.exc_info()
             tb_list = traceback.format_exception(exc_type, exc_value, exc_tb)
             tb_str = "".join(tb_list)
-            logger.info("In function %s: \n %s", func.__name__, tb_str)
+            logger.error("In function %s: \n %s", func.__name__, tb_str)
             value = None
             send_gracefull_exit()
         return value

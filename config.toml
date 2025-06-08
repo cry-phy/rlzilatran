@@ -8,3 +8,7 @@ MPI_SHUTDOWN_WAIT = 10
 GUI = true
 agent1 = "MinimaxAgent"
 agent2 = "MinimaxAgent"
+
+[cnn]
+leaf_batch_num = 8
+episode_batch_num = 1

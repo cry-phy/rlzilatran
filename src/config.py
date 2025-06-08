@@ -1,25 +1,66 @@
-from dynaconf import Dynaconf
+from typing import TypedDict, ClassVar
+from dynaconf import Dynaconf, Validator
 
 from agents import agent_class_dict
 
 
-CONFIG_PATH = "config.json"
+class MPIConfig(TypedDict):
+    """MPI Config."""
 
-settings = Dynaconf(
-    envvar_prefix="DYNACONF",
-    settings_files=["config.toml"],
-)
-
-_config = None
+    TRAINING_WRANK: int
+    INFERENCE_NRANK: int
+    OBSERVER_ORANK: int
+    MPI_SHUTDOWN_WAIT: float
 
 
-def get_config():
-    """Ensure config is only generated once."""
+class OBSConfig(TypedDict):
+    """Observer, Agents config."""
+
+    GUI: bool
+    agent1: str
+    agent2: str
+
+
+class CNNConfig(TypedDict):
+    """CNN batch sizes, and others."""
+
+    leaf_batch_num: int
+    episode_batch_num: int
+
+
+class Settings(Dynaconf):
+    """Specify data types for Dynaconf settings."""
+
+    mpi: MPIConfig
+    obs: OBSConfig
+    cnn: CNNConfig
+
+    class Config:
+        """Configuration for Dynaconf."""
+
+        envvar_prefix = "DYNACONF"
+        settings_files: ClassVar = ["config.toml"]
+        namespaces: ClassVar = ["mpi", "obs", "cnn"]
+
+        VALIDATORS: ClassVar = [
+            Validator("mpi.TRAINING_WRANK", must_exist=True, gt=-1),
+            Validator("mpi.INFERENCE_NRANK", must_exist=True, gt=-1),
+            Validator("mpi.OBSERVER_ORANK", must_exist=True, gt=-1),
+            Validator("mpi.MPI_SHUTDOWN_WAIT", must_exist=True, gt=0),
+            Validator("obs.agent1", must_exist=True),
+            Validator("obs.agent2", must_exist=True),
+            Validator("obs.GUI", must_exist=False),
+        ]
+
+
+_config: Settings | None = None
+
+
+def get_config() -> Settings:
+    """Generate and return the configuration."""
     global _config
     if _config is None:
-        _config = Dynaconf(
-            envvar_prefix="DYNACONF",
-            settings_files=["config.toml"],
-        )
-    _config.agent_class_dict = agent_class_dict()
+        _config = Settings(settings_files=["config.toml"], environments=False)
+        _config.agent_class_dict = agent_class_dict()
+        _config.validators.validate(_config)
     return _config
