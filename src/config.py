@@ -26,6 +26,7 @@ class CNNConfig(TypedDict):
 
     leaf_batch_num: int
     episode_batch_num: int
+    replay_buffer_size: int
 
 
 class Settings(Dynaconf):
@@ -43,13 +44,16 @@ class Settings(Dynaconf):
         namespaces: ClassVar = ["mpi", "obs", "cnn"]
 
         VALIDATORS: ClassVar = [
-            Validator("mpi.TRAINING_WRANK", must_exist=True, gt=-1),
-            Validator("mpi.INFERENCE_NRANK", must_exist=True, gt=-1),
-            Validator("mpi.OBSERVER_ORANK", must_exist=True, gt=-1),
-            Validator("mpi.MPI_SHUTDOWN_WAIT", must_exist=True, gt=0),
+            Validator("mpi.TRAINING_WRANK", must_exist=True, default=0, gt=-1),
+            Validator("mpi.INFERENCE_NRANK", must_exist=True, default=0, gt=-1),
+            Validator("mpi.OBSERVER_ORANK", must_exist=True, default=0, gt=-1),
+            Validator("mpi.MPI_SHUTDOWN_WAIT", must_exist=True, default=10, gt=0),
             Validator("obs.agent1", must_exist=True),
             Validator("obs.agent2", must_exist=True),
-            Validator("obs.GUI", must_exist=False),
+            Validator("obs.GUI", default=False, must_exist=True),
+            Validator("leaf_batch_num", default=16, must_exist=True),
+            Validator("episode_batch_num", default=16, must_exist=True),
+            Validator("replay_buffer_size", default=500000, must_exist=True),
         ]
 
 

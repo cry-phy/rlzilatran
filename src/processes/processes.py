@@ -89,7 +89,7 @@ class TrainingProcess(MPIProcess):
         super().__init__()
         self.queue = Queue(Constants.BATCH_SIZE)
         self.dataset, self.dataloader = get_episode_loader(
-            self.queue, Constants.BATCH_SIZE
+            self.queue, Constants.BATCH_SIZE, config.cnn.replay_buffer_size
         )
         self.cnn = SmallCNN(
             128,

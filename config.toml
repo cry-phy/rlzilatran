@@ -12,3 +12,4 @@ agent2 = "MinimaxAgent"
 [cnn]
 leaf_batch_num = 8
 episode_batch_num = 1
+replay_buffer_size = 500000
