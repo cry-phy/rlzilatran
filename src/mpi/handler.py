@@ -25,8 +25,7 @@ class Tag(IntEnum):
     """Make tags easier to understand."""
 
     EXIT = auto()
-    EPISODE_STATES = auto()
-    EPISODE_VALUES = auto()
+    EPISODE = auto()
     NOTIFY_WEIGHTS = auto()
     LEAF_BATCH = auto()
     VALUE_BATCH = auto()
@@ -213,15 +212,11 @@ class MPIHandler:
         message["states"] = np_states
         message["values"] = np_values
         message["move_tensor"] = np_move_tensors
-        self.wcomm.Isend(
-            [message, MPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE_STATES)
-        )
+        self.wcomm.Isend([message, MPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE))
 
     def probe_episode(self, source: int) -> bool:
         """Probe if episode was sent from rank."""
-        return self.wcomm.Iprobe(source, int(Tag.EPISODE_STATES)) and self.wcomm.iprobe(
-            source, int(Tag.EPISODE_VALUES)
-        )
+        return self.wcomm.Iprobe(source, int(Tag.EPISODE))
 
     def recv_episode(
         self, source: int
@@ -240,13 +235,13 @@ class MPIHandler:
             ],
         )
         req: MPI.Request = self.wcomm.Irecv(
-            [message, MPI.BYTE], source, int(Tag.EPISODE_STATES)
+            [message, MPI.BYTE], source, int(Tag.EPISODE)
         )
         return (
             req,
             torch.from_numpy(message["states"]),
             torch.from_numpy(message["values"]),
-            torch.from_numpy(message["move_tensors"]),
+            torch.from_numpy(message["move_tensor"]),
         )
 
     # --- Distribute Weights from Training to Inference ---
@@ -285,7 +280,7 @@ class MPIHandler:
             size = self._bcast_size(0)
             bytestream = bytearray(size)
         req: MPI.Request = self.cnncomm.Ibcast(
-            [bytestream, MPI.FLOAT],
+            [bytestream, MPI.BYTE],
             self._cnn_training_rank,
         )
         if not self._wrank == self.TRAINING_WRANK:

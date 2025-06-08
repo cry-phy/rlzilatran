@@ -48,7 +48,7 @@
   "PIECES": ["P", "S", "O"],
   "BOARD_SIZE": [4, 8],
   "HISTORY_LENGTH": 4,
-  "BATCH_SIZE": 256,
+  "BATCH_SIZE": 16,
   "CAPTURE_CLOCK": 7,
   "PIECE_VALUE_DICT": {
     "P": 1,

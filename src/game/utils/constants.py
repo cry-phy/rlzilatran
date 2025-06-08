@@ -156,16 +156,16 @@ class __Constants:
     @property
     def state_tensor_batch_shape(self) -> tuple[int, int, int, int]:
         """Get shape for move tensor."""
-        return (*self.state_tensor_shape, self.BATCH_SIZE)
+        return (self.BATCH_SIZE, *self.state_tensor_shape)
 
     @property
     def move_tensor_batch_shape(self) -> tuple[int, int, int, int]:
         """Get shape for move tensor."""
-        return (*self.move_tensor_shape, self.BATCH_SIZE)
+        return (self.BATCH_SIZE, *self.move_tensor_shape)
 
     @property
     def leaf_batch_shape(self) -> tuple[int, int, int, int]:
-        return (*self.state_tensor_shape, self.BATCH_SIZE)
+        return (self.BATCH_SIZE, *self.state_tensor_shape)
 
     @property
     def value_batch_shape(self) -> tuple[int]:

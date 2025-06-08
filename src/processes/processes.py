@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from config import Settings
-from cnn.loader import get_leaf_loader
+from cnn.loader import get_episode_loader, get_leaf_loader
 from cnn.queue import EpisodeItem, LeafItem, Queue
 from cnn.small import SmallCNN
 from cnn.trainer import Trainer
@@ -88,7 +88,7 @@ class TrainingProcess(MPIProcess):
         """Initialize CNN inference."""
         super().__init__()
         self.queue = Queue(Constants.BATCH_SIZE)
-        self.dataset, self.dataloader = get_leaf_loader(
+        self.dataset, self.dataloader = get_episode_loader(
             self.queue, Constants.BATCH_SIZE
         )
         self.cnn = SmallCNN(
@@ -105,14 +105,15 @@ class TrainingProcess(MPIProcess):
         while True:
             self.main_step()
 
+    @gracefull_error
     def main_step(self) -> None:
         """Run a single step in the process loop."""
-        for source in range(self.mpi._wrank):
+        for source in range(self.mpi._wsize):
             if self.mpi.probe_episode(source):
                 req, states, values, move_tensor = self.mpi.recv_episode(source)
                 item = EpisodeItem(req, states, values, move_tensor)
                 self.queue.add(item)
-                logger.debug("Recieved Episode data from %i", source)
+                logger.info("Recieved Episode data from %i", source)
 
         if self.queue.num_ready() >= self.episode_batch_num:
             logger.info("Starting Training.")
@@ -144,12 +145,13 @@ class InferenceProcess(MPIProcess):
         while True:
             self.main_step()
 
+    @gracefull_error
     def main_step(self) -> None:
         """Run a single step in the process loop."""
         if self.mpi.probe_weights_ready():
-            logger.into("Recieving Weights.")
+            logger.info("Recieving Weights.")
             self.mpi.recv_weights_ready()
-            self.cnn.ibcast_weights()
+            self.mpi.bcast_weights(self.cnn)
             logger.info("Recieved Weights.")
 
         for nrank in range(cast(int, self.mpi._nsize)):

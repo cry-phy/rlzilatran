@@ -63,5 +63,4 @@ def get_config() -> Settings:
         _config = Settings(settings_files=["config.toml"], environments=False)
         _config.agent_class_dict = agent_class_dict()
         _config.validators.validate(_config)
-    print(_config.to_dict())
     return _config
