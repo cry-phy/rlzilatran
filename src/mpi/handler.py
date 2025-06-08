@@ -203,7 +203,7 @@ class MPIHandler:
         np_values = values.numpy()
         np_move_tensors = move_tensor.numpy()
         message: np.ndarray = np.empty(
-            Constants.BATCH_SIZE,
+            1,
             dtype=[
                 ("states", "f4", Constants.state_tensor_batch_shape),
                 ("values", "f4", Constants.value_batch_shape),
@@ -427,7 +427,7 @@ def gracefull_error(func):
             exc_type, exc_value, exc_tb = sys.exc_info()
             tb_list = traceback.format_exception(exc_type, exc_value, exc_tb)
             tb_str = "".join(tb_list)
-            logger.info("In function %s: \n %s", func.__name__, tb_str)
+            logger.error("In function %s: \n %s", func.__name__, tb_str)
             value = None
             send_gracefull_exit()
         return value

@@ -11,4 +11,4 @@ agent2 = "MinimaxAgent"
 
 [cnn]
 leaf_batch_num = 8
-episode_batch_num = 16
+episode_batch_num = 1
