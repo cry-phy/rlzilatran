@@ -144,7 +144,7 @@ mkdir out
 TMPDIR=./out
 
 module purge
-mpiexec --hostfile <(scontrol show hostnames $SLURM_JOB_NODELIST) --np $NUM_PROCESSES --map-by ppr:$THREADS_PER_PROCESS:core -- python src/main.py $JOBNAME >> $JOBNAME.log" > $JOBNAME/run.$JOBNAME.slurm
+mpiexec --hostfile <(scontrol show hostnames $SLURM_JOB_NODELIST) --np $NUM_PROCESSES --map-by ppr:$THREADS_PER_PROCESS:core -- python ../src/main.py $JOBNAME >> $JOBNAME.log" > $JOBNAME/run.$JOBNAME.slurm
 
 # Copy config from:
 #  Job directory if it already exists
@@ -153,12 +153,12 @@ mpiexec --hostfile <(scontrol show hostnames $SLURM_JOB_NODELIST) --np $NUM_PROC
 if [ -f ./$JOBNAME/config.yaml ]; then
   echo "Config is not copied since already exists"
 else
-  if [ -f ./config.yaml ]; then
+  if [ -f ./config.toml ]; then
     echo "Using config from current directory"
     cp -n config.yaml $JOBNAME
   else 
-    echo "WARNING: Using backup sample config"
-    cp -n configs/config_sample.yaml $JOBNAME/config.yaml
+    echo "ERROR: NO config found!"
+    exit
   fi
 fi
 
