@@ -2,6 +2,7 @@
 *poetry.lock*
 *__pycache__*
 htmlcov/
+temp/*
 .pytest_cache/
 .ruff_cache/
 .coverage
