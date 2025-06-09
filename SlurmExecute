@@ -155,7 +155,7 @@ if [ -f ./$JOBNAME/config.toml ]; then
 else
   if [ -f ./config.toml ]; then
     echo "Using config from current directory"
-    cp -n config.yaml $JOBNAME
+    cp -n config.toml $JOBNAME
   else
     echo "ERROR: NO config found!"
     exit
