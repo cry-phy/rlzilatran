@@ -50,8 +50,8 @@ if [ -z "$1" ]; then echo "The parameter jobname (at position 1) must be specifi
 for ARG in "$@"; do
   case $ARG in
       -h=*|--help=*)
-        show_help 
-        exit 
+        show_help
+        exit
         ;;
       -q=*|--queue=*)
         QUEUE_NAME="${1#*=}"
@@ -118,7 +118,7 @@ NUM_NODES=$(( (TOTAL_CPUS + CPUS_PER_NODE - 1) / CPUS_PER_NODE ))
 # Provide user Feedback
 echo "Reserving $NUM_NODES nodes for $NUM_PROCESSES tasks with $THREADS_PER_PROCESS threads per task"
 
-echo "\#SBATCH --mem-per-cpu=${MEM_in_MB}M" 
+echo "\#SBATCH --mem-per-cpu=${MEM_in_MB}M"
 # Prepare Working directory and provide Slurm script
 mkdir -p $JOBNAME
 echo "#!/bin/bash
@@ -150,13 +150,13 @@ mpiexec --hostfile <(scontrol show hostnames $SLURM_JOB_NODELIST) --np $NUM_PROC
 #  Job directory if it already exists
 #  Current directory if it exists
 #  Warn user when using backup config as backup (used for debugging, can be removed at any time)
-if [ -f ./$JOBNAME/config.yaml ]; then
+if [ -f ./$JOBNAME/config.toml ]; then
   echo "Config is not copied since already exists"
 else
   if [ -f ./config.toml ]; then
     echo "Using config from current directory"
     cp -n config.yaml $JOBNAME
-  else 
+  else
     echo "ERROR: NO config found!"
     exit
   fi
