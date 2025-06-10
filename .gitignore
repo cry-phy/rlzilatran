@@ -7,4 +7,5 @@ temp/*
 .ruff_cache/
 .coverage
 .envrc
+.venv.toml
 *.ipynb

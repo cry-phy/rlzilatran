@@ -72,7 +72,7 @@ class MPIHandler:
     token = TokenHandler()
     _init = False
 
-    def __new__(cls, config: Settings | None = None) -> "MPIHandler":
+    def __new__(cls, config: Settings | None = None) -> MPIHandler:
         """Singleton Instance."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -92,10 +92,7 @@ class MPIHandler:
             return
 
         if config is not None:
-            self.TRAINING_WRANK = config.mpi.TRAINING_WRANK
-            self.INFERENCE_NRANK = config.mpi.INFERENCE_NRANK
-            self.OBSERVER_ORANK = config.mpi.OBSERVER_ORANK
-            self.MPI_SHUTDOWN_WAIT = config.mpi.MPI_SHUTDOWN_WAIT
+            self.config = config.mpi
         else:
             raise ValueError(
                 "Config must be passed to the first time MPIHandler is created."
@@ -118,7 +115,9 @@ class MPIHandler:
         self._cnnsize: int | None = None
 
         # Node comm setup
-        training_color = MPI.UNDEFINED if self._wrank == self.TRAINING_WRANK else 0
+        training_color = (
+            MPI.UNDEFINED if self._wrank == self.config.TRAINING_WRANK else 0
+        )
         avail_comm = self.wcomm.Split(training_color, self._wrank)
         if avail_comm != MPI.COMM_NULL:
             self.ncomm: MPI.Comm = avail_comm.Split_type(MPI.COMM_TYPE_SHARED)
@@ -127,15 +126,34 @@ class MPIHandler:
 
             # Observer-Agent comm setup
             inference_color = (
-                MPI.UNDEFINED if self._nrank == self.INFERENCE_NRANK else 0
+                MPI.UNDEFINED if self._nrank == self.config.INFERENCE_NRANK else 0
             )
-            self.ocomm = self.ncomm.Split(inference_color, self._nrank)
+            avail_comm = self.ncomm.Split(inference_color, self._nrank)
+
+            number_observers = (
+                self.config.PROCESSES_PER_NODE // self.config.AGENTS_PER_OBSERVER
+            )
+            wasted_resources = (
+                number_observers * self.config.PROCESSES_PER_NODE
+                - self.config.PROCESSES_PER_NODE
+            )
+            if wasted_resources != 0:
+                logger.warning(
+                    "Number of Agents (%i) per Observer (%i) does fill Node Processes (%i) correctly. Wasted Processes: %i",
+                    self.config.AGENTS_PER_OBSERVER,
+                    number_observers,
+                    self.config.PROCESSES_PER_NODE,
+                    wasted_resources,
+                )
+
+            observer_color = avail_comm.Get_rank() // self.config.PROCESSES_PER_NODE
+            self.ocomm = self.ncomm.Split(observer_color, self._nrank)
             if self.ocomm != MPI.COMM_NULL:
                 self._orank = self.ocomm.Get_rank()
                 self._osize = self.ocomm.Get_size()
 
         # Get world comm ranks of inference ranks
-        is_inference = self._nrank == self.INFERENCE_NRANK
+        is_inference = self._nrank == self.config.INFERENCE_NRANK
         logger.debug(f"Rank {self._wrank} is inference: {is_inference}")
         are_inference = self.wcomm.allgather(is_inference)
         self.inference_wranks = torch.where(
@@ -146,7 +164,7 @@ class MPIHandler:
         cnn_color = (
             0
             if self._wrank in self.inference_wranks
-            or self._wrank == self.TRAINING_WRANK
+            or self._wrank == self.config.TRAINING_WRANK
             else MPI.UNDEFINED
         )
         self.cnncomm = self.wcomm.Split(cnn_color, self._wrank)
@@ -156,7 +174,7 @@ class MPIHandler:
 
             # Broadcast training rank in the cnn comm to all
             self._cnn_training_rank = self.wcomm.bcast(
-                self._cnnrank, self.TRAINING_WRANK
+                self._cnnrank, self.config.TRAINING_WRANK
             )
 
         if self._wrank == 0:
@@ -212,7 +230,9 @@ class MPIHandler:
         message["states"] = np_states
         message["values"] = np_values
         message["move_tensor"] = np_move_tensors
-        self.wcomm.Isend([message, MPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE))
+        self.wcomm.Isend(
+            [message, MPI.BYTE], self.config.TRAINING_WRANK, int(Tag.EPISODE)
+        )
 
     def probe_episode(self, source: int) -> bool:
         """Probe if episode was sent from rank."""
@@ -262,7 +282,7 @@ class MPIHandler:
 
     def _bcast_size(self, size: int) -> int:
         """Blocking size distribution to allow for non blocking."""
-        size = self.cnncomm.bcast(size, self.TRAINING_WRANK)
+        size = self.cnncomm.bcast(size, self.config.TRAINING_WRANK)
         return size
 
     def bcast_weights(self, model: CNN) -> None:
@@ -273,17 +293,17 @@ class MPIHandler:
         for NCCL direct GPU-GPU interaction.
         """
         logger.debug("Broadcasting weights.")
-        if self._wrank == self.TRAINING_WRANK:
-            bytestream = model.to_bytestream()
+        if self._wrank == self.config.TRAINING_WRANK:
+            bytestream: bytearray = model.to_bytestream()
             _ = self._bcast_size(len(bytestream))
         else:
             size = self._bcast_size(0)
-            bytestream = bytearray(size)
+            bytestream: bytearray = bytearray(size)
         req: MPI.Request = self.cnncomm.Ibcast(
             [bytestream, MPI.BYTE],
             self._cnn_training_rank,
         )
-        if not self._wrank == self.TRAINING_WRANK:
+        if not self._wrank == self.config.TRAINING_WRANK:
             req.Wait()
             model.from_bytestream(bytestream)
 
@@ -293,13 +313,13 @@ class MPIHandler:
     ) -> tuple[int, int, int, int, int]:
         """Broadcast new game state to all agents."""
         logger.debug("Broadcasting decided move.")
-        if self._orank == self.OBSERVER_ORANK:
+        if self._orank == self.config.OBSERVER_ORANK:
             if move is None:
                 raise ValueError("Attempting to Bcast None from self.OBSERVER_ORANK.")
         else:
             if move is not None:
                 raise ValueError("Attempting to send data on Agent Rank.")
-        return self.ocomm.bcast(move, self.OBSERVER_ORANK)
+        return self.ocomm.bcast(move, self.config.OBSERVER_ORANK)
 
     def reduce_move_tensors(self, move_tensor: torch.Tensor) -> torch.Tensor:
         """Gather all move suggestion tensors from agents."""
@@ -312,7 +332,9 @@ class MPIHandler:
     def reduce_values(self, value: float) -> float | None:
         """Reduce values from all ocomm."""
         logger.debug("Reducing values.")
-        red_value: float | None = self.ocomm.reduce(value, MPI.SUM, self.OBSERVER_ORANK)
+        red_value: float | None = self.ocomm.reduce(
+            value, MPI.SUM, self.config.OBSERVER_ORANK
+        )
         return red_value
 
     # --- Leaves from Agents to Inference ---
@@ -320,7 +342,9 @@ class MPIHandler:
         """Send Leaf batch to inference, returning a unique Token."""
         np_leaves = leaf_batch.numpy()
         message = self.token.tokenize_data(np_leaves)
-        self.ncomm.Isend([message, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH))
+        self.ncomm.Isend(
+            [message, MPI.BYTE], self.config.INFERENCE_NRANK, int(Tag.LEAF_BATCH)
+        )
         return int(message["token"])
 
     def probe_leaf_batch(self, nsource: int) -> bool:
@@ -373,7 +397,9 @@ class MPIHandler:
                 ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
             ],
         )
-        self.ncomm.Recv([message, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
+        self.ncomm.Recv(
+            [message, MPI.BYTE], self.config.INFERENCE_NRANK, int(Tag.VALUE_BATCH)
+        )
         return (
             int(message["token"]),
             torch.from_numpy(message["values"]),
@@ -387,7 +413,7 @@ def send_gracefull_exit():
     requests = mpi.send_exit()
     mpi.recv_exit()
     start_time = time()
-    while requests and time() - start_time <= mpi.MPI_SHUTDOWN_WAIT:
+    while requests and time() - start_time <= mpi.config.MPI_SHUTDOWN_WAIT:
         to_remove: list[MPI.Request] = []
         for req in requests:
             if req.Get_status():

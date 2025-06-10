@@ -1,62 +1,48 @@
-from typing import TypedDict, ClassVar
-from dynaconf import Dynaconf, Validator
-
-from agents import agent_class_dict
-
-
-class MPIConfig(TypedDict):
-    """MPI Config."""
-
-    TRAINING_WRANK: int
-    INFERENCE_NRANK: int
-    OBSERVER_ORANK: int
-    MPI_SHUTDOWN_WAIT: float
+from dynaconf import Dynaconf
+from pydantic import BaseModel, Field
+from src.agents.base import agent_class_dict
 
 
-class OBSConfig(TypedDict):
-    """Observer, Agents config."""
+class MPIConfig(BaseModel):
+    """MPI Config using Pydantic for validation and typing."""
 
-    GUI: bool
+    TRAINING_WRANK: int = Field(0, ge=0)
+    INFERENCE_NRANK: int = Field(0, ge=0)
+    OBSERVER_ORANK: int = Field(0, ge=0)
+    MPI_SHUTDOWN_WAIT: float = Field(10.0, gt=0)
+    AGENTS_PER_OBSERVER: int = Field(4, gt=0)
+    PROCESSES_PER_NODE: int = Field(..., gt=0)
+
+
+class OBSConfig(BaseModel):
+    """Observer and Agents config using Pydantic."""
+
+    GUI: bool = False
     agent1: str
     agent2: str
 
 
-class CNNConfig(TypedDict):
-    """CNN batch sizes, and others."""
+class CNNConfig(BaseModel):
+    """CNN config using Pydantic."""
 
-    leaf_batch_num: int
-    episode_batch_num: int
-    replay_buffer_size: int
+    leaf_batch_num: int = 16
+    episode_batch_num: int = 16
+    replay_buffer_size: int = 500000
 
 
 class Settings(Dynaconf):
-    """Specify data types for Dynaconf settings."""
+    """Dynaconf settings class using Pydantic models for data validation."""
 
     mpi: MPIConfig
     obs: OBSConfig
     cnn: CNNConfig
 
-    class Config:
-        """Configuration for Dynaconf."""
-
-        envvar_prefix = "DYNACONF"
-        settings_files: ClassVar = ["config.toml"]
-        namespaces: ClassVar = ["mpi", "obs", "cnn"]
-
-        VALIDATORS: ClassVar = [
-            Validator("mpi.TRAINING_WRANK", must_exist=True, default=0, gt=-1),
-            Validator("mpi.INFERENCE_NRANK", must_exist=True, default=0, gt=-1),
-            Validator("mpi.OBSERVER_ORANK", must_exist=True, default=0, gt=-1),
-            Validator("mpi.MPI_SHUTDOWN_WAIT", must_exist=True, default=10, gt=0),
-            Validator("obs.agent1", must_exist=True),
-            Validator("obs.agent2", must_exist=True),
-            Validator("obs.GUI", default=False, must_exist=True),
-            Validator("leaf_batch_num", default=16, must_exist=True),
-            Validator("episode_batch_num", default=16, must_exist=True),
-            Validator("replay_buffer_size", default=500000, must_exist=True),
-        ]
+    # The old `Config` inner class is no longer needed, as validation
+    # is handled by the Pydantic models and other settings are passed
+    # during instantiation.
 
 
+# Global variable for the configuration instance
 _config: Settings | None = None
 
 
@@ -64,7 +50,10 @@ def get_config() -> Settings:
     """Generate and return the configuration."""
     global _config
     if _config is None:
-        _config = Settings(settings_files=["config.toml"], environments=False)
+        _config = Settings(
+            envvar_prefix="DYNACONF",
+            settings_files=["config.toml"],
+            environments=False,
+        )
         _config.agent_class_dict = agent_class_dict()
-        _config.validators.validate(_config)
     return _config

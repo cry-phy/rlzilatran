@@ -82,6 +82,7 @@ def get_leaf_loader(queue: Queue, super_size: int) -> tuple[Dataset, DataLoader]
         batch_size=super_size,
         num_workers=0,
         pin_memory=True,
+        collate_fn=collate_leaf,
     )
     return dataset, loader
 
@@ -98,5 +99,6 @@ def get_episode_loader(
         batch_size=super_size,
         num_workers=0,
         pin_memory=True,
+        collate_fn=collate_episode,
     )
     return dataset, loader
