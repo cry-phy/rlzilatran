@@ -203,9 +203,7 @@ class MPIHandler:
             if avail_comm != MPI.COMM_NULL:
                 processes_per_gpu = avail_comm.Get_size()
                 gpu_rank = avail_comm.Get_rank()
-                number_observers = round(
-                    processes_per_gpu / self.config.AGENTS_PER_OBSERVER
-                )
+                number_observers = processes_per_gpu // self.config.AGENTS_PER_OBSERVER
                 bp_rank = processes_per_gpu % number_observers
                 observer_color = (
                     gpu_rank // (self.config.AGENTS_PER_OBSERVER + 1)
@@ -226,7 +224,6 @@ class MPIHandler:
         are_cnn = self.wcomm.allgather(is_cnn)
         self.wranks = torch.where(torch.tensor(are_cnn, dtype=torch.bool))[0]
 
-        print(self.wranks)
         # Weight sending comm setup
         cnn_color = MPI.UNDEFINED if self._wrank not in self.wranks else 0
         self.cnncomm = self.wcomm.Split(cnn_color, self._wrank)
