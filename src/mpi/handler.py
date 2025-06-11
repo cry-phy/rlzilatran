@@ -184,6 +184,8 @@ class MPIHandler:
                 num_gpus = max(torch.cuda.device_count() - 1, 1)
             else:
                 num_gpus = torch.cuda.device_count()
+            if num_gpus == 0:
+                raise ValueError("No GPUS detected! Cannot continue.")
             num_per_gpu = avail_size // num_gpus
             bp_rank = avail_size % num_gpus
             ncomm_color = (
@@ -196,42 +198,37 @@ class MPIHandler:
             self._nsize = self.ncomm.Get_size()
 
             # Observer-Agent comm setup
-            inference_color = (
-                MPI.UNDEFINED if self._nrank == self.config.INFERENCE_NRANK else 0
-            )
-            avail_comm = self.ncomm.Split(inference_color, self._nrank)
-            processes_per_gpu = self.ncomm.Get_size()
-            gpu_rank = self.ncomm.Get_rank()
-            number_observers = round(
-                processes_per_gpu / self.config.AGENTS_PER_OBSERVER
-            )
-            bp_rank = processes_per_gpu % number_observers
-            observer_color = (
-                gpu_rank // (number_observers + 1)
-                if gpu_rank <= bp_rank
-                else gpu_rank // number_observers
-            )
-            logger.info("%s %s %s", processes_per_gpu, observer_color, number_observers)
-            self.ocomm = self.ncomm.Split(observer_color, self._nrank)
-            if self.ocomm != MPI.COMM_NULL:
-                self._orank = self.ocomm.Get_rank()
-                self._osize = self.ocomm.Get_size()
+            color = MPI.UNDEFINED if self._nrank == self.config.INFERENCE_NRANK else 0
+            avail_comm = self.ncomm.Split(color, self._nrank)
+            if avail_comm != MPI.COMM_NULL:
+                processes_per_gpu = avail_comm.Get_size()
+                gpu_rank = avail_comm.Get_rank()
+                number_observers = round(
+                    processes_per_gpu / self.config.AGENTS_PER_OBSERVER
+                )
+                bp_rank = processes_per_gpu % number_observers
+                observer_color = (
+                    gpu_rank // (self.config.AGENTS_PER_OBSERVER + 1)
+                    if gpu_rank <= bp_rank
+                    else gpu_rank // self.config.AGENTS_PER_OBSERVER
+                )
+                self.ocomm = avail_comm.Split(observer_color, self._nrank)
+                if self.ocomm != MPI.COMM_NULL:
+                    self._orank = self.ocomm.Get_rank()
+                    self._osize = self.ocomm.Get_size()
 
         # Get world comm ranks of inference ranks
-        is_inference = self._nrank == self.config.INFERENCE_NRANK
-        logger.debug(f"Rank {self._wrank} is inference: {is_inference}")
-        are_inference = self.wcomm.allgather(is_inference)
-        self.inference_wranks = torch.where(
-            torch.tensor(are_inference, dtype=torch.bool)
-        )
-
-        # Weight sending comm setup
-        cnn_color = (
-            0
-            if self._wrank in self.inference_wranks
+        is_cnn = (
+            self._nrank == self.config.INFERENCE_NRANK
             or self._wrank == self.config.TRAINING_WRANK
-            else MPI.UNDEFINED
         )
+        logger.debug(f"Rank {self._wrank} is inference: {is_cnn}")
+        are_cnn = self.wcomm.allgather(is_cnn)
+        self.wranks = torch.where(torch.tensor(are_cnn, dtype=torch.bool))[0]
+
+        print(self.wranks)
+        # Weight sending comm setup
+        cnn_color = MPI.UNDEFINED if self._wrank not in self.wranks else 0
         self.cnncomm = self.wcomm.Split(cnn_color, self._wrank)
         if self.cnncomm != MPI.COMM_NULL:
             self._cnnrank = self.cnncomm.Get_rank()
@@ -244,9 +241,10 @@ class MPIHandler:
 
         if self._wrank == 0:
             logger.info(
-                f"Started MPI with wcomm with {self._wsize} processes, inference on {self.inference_wranks}"
+                f"Started MPI with wcomm with {self._wsize} processes, inference on {self.wranks}"
             )
         self._init = True
+        logger.info("%s %s %s %s", self._wrank, self._nrank, self._orank, self._cnnrank)
 
     def force_exit(self):
         """Force world comm abort."""
@@ -333,7 +331,7 @@ class MPIHandler:
     def send_weights_ready(self) -> None:
         """Send data to all processes that weights are ready."""
         empty_msg = np.empty(0, dtype="b")
-        for target in self.inference_wranks:
+        for target in self.wranks:
             self.wcomm.Isend([empty_msg, MPI.BYTE], target, int(Tag.NOTIFY_WEIGHTS))
 
     def probe_weights_ready(self) -> bool:
@@ -408,9 +406,7 @@ class MPIHandler:
         """Send Leaf batch to inference, returning a unique Token."""
         np_leaves = leaf_batch.numpy()
         message = self.token.tokenize_data(np_leaves)
-        self.ncomm.Isend(
-            [message, MPI.BYTE], self.config.INFERENCE_NRANK, int(Tag.LEAF_BATCH)
-        )
+        self.ncomm.Isend([message, MPI.BYTE], self.config.NRANK, int(Tag.LEAF_BATCH))
         return int(message["token"])
 
     def probe_leaf_batch(self, nsource: int) -> bool:
@@ -463,9 +459,7 @@ class MPIHandler:
                 ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
             ],
         )
-        self.ncomm.Recv(
-            [message, MPI.BYTE], self.config.INFERENCE_NRANK, int(Tag.VALUE_BATCH)
-        )
+        self.ncomm.Recv([message, MPI.BYTE], self.config.NRANK, int(Tag.VALUE_BATCH))
         return (
             int(message["token"]),
             torch.from_numpy(message["values"]),
