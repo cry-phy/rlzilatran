@@ -5,12 +5,26 @@ import torch
 
 
 class CNN(nn.Module):
-    """Base Model for CNN class."""
+    """Base Model for CNN class.
+
+    Derived Models must use device as an argument in their __init__.
+    """
 
     def __init__(self, device: torch.device) -> None:
-        """Set values for all CNNs."""
+        """!!!Do not Use directly!!! Use CNN.create() instead."""
         super().__init__()
         self.device = device
+
+    @classmethod
+    def create(cls, device: torch.device, *args, **kwargs) -> "CNN":
+        """Create CNN on device."""
+        instance = cls(*args, **kwargs, device=device)
+        instance.to_device()
+        return instance
+
+    def to_device(self) -> None:
+        """Send model to corresponding device."""
+        self.to(self.device)
 
     def from_bytestream(self, bytestream: bytes) -> None:
         """Read weigths from from pickled state dict."""

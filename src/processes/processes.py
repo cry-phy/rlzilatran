@@ -91,11 +91,11 @@ class TrainingProcess(MPIProcess):
         self.dataset, self.dataloader = get_episode_loader(
             self.queue, Constants.BATCH_SIZE, config.cnn.replay_buffer_size
         )
-        self.cnn = SmallCNN(
+        self.cnn = SmallCNN.create(
+            handler.get_device(),
             128,
             Constants.state_tensor_shape,
             Constants.move_tensor_shape,
-            handler.get_device(),
         )
         self.trainer = Trainer.from_config(self.cnn, config)
         self.mpi = handler
@@ -133,11 +133,11 @@ class InferenceProcess(MPIProcess):
         self.dataset, self.dataloader = get_leaf_loader(
             self.queue, Constants.BATCH_SIZE
         )
-        self.cnn = SmallCNN(
+        self.cnn = SmallCNN.create(
+            handler.get_device(),
             128,
             Constants.state_tensor_shape,
             Constants.move_tensor_shape,
-            handler.get_device(),
         )
         self.mpi = handler
         self.leaf_batch_num = config.cnn.leaf_batch_num
@@ -246,7 +246,7 @@ class ObserverProcess(MPIProcess):
         """Send episode batch to Training."""
         if self.obs.batch_ready():
             logger.info("Sending Episode.")
-            self.obs.send_epsiode()
+            self.obs.send_episode()
             self.obs.reset_data()
 
     @gracefull_error

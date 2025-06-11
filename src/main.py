@@ -14,7 +14,6 @@ def setup_logging(rank: int, level: int):
     The mpi buffer makes this truly usable since the buffer is block buffered
     instead of line buffered allowing fast writes.
     """
-    print(f"Setting up logging ({level}) on Rank: {rank}")
     fmt = "%(asctime)s [rank:%(rank)d] %(levelname)s %(name)s: %(message)s"
     root = logging.getLogger()
     root.setLevel(level)

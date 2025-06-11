@@ -28,24 +28,21 @@ class Trainer:
         """TODO: Read from config."""
         optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
         loss_fn = nn.MSELoss()
-        instance = cls(
-            model,
-            optimizer,
-            loss_fn,
-        )
+        instance = cls(model, optimizer, loss_fn)
         return instance
 
     def train(self, loader: DataLoader) -> None:
         """Run training on loaded data."""
         self.model.train()
 
-        for batch in loader:
-            inputs, targets = batch
-            inputs, targets = inputs.to(self.device), targets.to(self.device)
+        for data, moves, values in loader:
+            data = data.to(device=self.device)
+            moves = moves.to(device=self.device)
+            values = values.to(device=self.device)
 
             self.optimizer.zero_grad()
-            outputs = self.model(inputs)
-            loss = self.loss_fn(outputs, targets)
+            out_moves, out_values = self.model.forward(data)
+            loss = self.loss_fn(out_moves, moves) + self.loss_fn(out_values, values)
             loss.backward()
             self.optimizer.step()
 

@@ -325,7 +325,7 @@ class MPIHandler:
         Using a future apporach as it allows for gathering without inhibiting.
         """
         message: np.ndarray = np.empty(
-            Constants.BATCH_SIZE,
+            1,
             dtype=[
                 ("states", "f4", Constants.state_tensor_batch_shape),
                 ("values", "f4", Constants.value_batch_shape),
@@ -337,9 +337,9 @@ class MPIHandler:
         )
         return (
             req,
-            torch.from_numpy(message["states"]),
-            torch.from_numpy(message["values"]),
-            torch.from_numpy(message["move_tensor"]),
+            torch.from_numpy(message["states"].squeeze(0)),
+            torch.from_numpy(message["values"].squeeze(0)),
+            torch.from_numpy(message["move_tensor"].squeeze(0)),
         )
 
     # --- Distribute Weights from Training to Inference ---
@@ -477,6 +477,6 @@ class MPIHandler:
         self.ncomm.Recv([message, MPI.BYTE], self.config.NRANK, int(Tag.VALUE_BATCH))
         return (
             int(message["token"]),
-            torch.from_numpy(message["values"]),
-            torch.from_numpy(message["move_tensors"]),
+            torch.from_numpy(message["values"].squeeze(0)),
+            torch.from_numpy(message["move_tensors"].squeeze(0)),
         )

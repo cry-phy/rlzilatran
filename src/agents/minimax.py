@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from typing import Callable
+    from collections.abc import Callable
     from game import Game
 
 from agents import BaseAgent
@@ -19,7 +19,7 @@ class MinimaxAgent(BaseAgent):
     def __init__(self, game: Game) -> None:
         """Initialize Minimax agent."""
         super().__init__(game)
-        self._depth: int = 3
+        self._depth: int = 2
         self._weights: dict[str, float] = {
             "material": 0,
             "capture": 1,
