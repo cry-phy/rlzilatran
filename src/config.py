@@ -1,6 +1,6 @@
 from dynaconf import Dynaconf
 from pydantic import BaseModel, Field
-from src.agents.base import agent_class_dict
+from agents import agent_class_dict
 
 
 class MPIConfig(BaseModel):
@@ -36,10 +36,6 @@ class Settings(Dynaconf):
     mpi: MPIConfig
     obs: OBSConfig
     cnn: CNNConfig
-
-    # The old `Config` inner class is no longer needed, as validation
-    # is handled by the Pydantic models and other settings are passed
-    # during instantiation.
 
 
 # Global variable for the configuration instance

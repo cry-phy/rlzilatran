@@ -21,6 +21,55 @@ import sys
 logger = logging.getLogger(__name__)
 
 
+def send_gracefull_exit():
+    """Gracefully Shutdown all processes."""
+    mpi = MPIHandler()
+    requests = mpi.send_exit()
+    mpi.recv_exit()
+    start_time = time()
+    while requests and time() - start_time <= mpi.config.MPI_SHUTDOWN_WAIT:
+        to_remove: list[MPI.Request] = []
+        for req in requests:
+            if req.Get_status():
+                to_remove.append(req)
+        [requests.remove(req) for req in to_remove]
+    mpi.wcomm.Abort(1)
+
+
+def handle_gracefull_exit():
+    """Handle exit call."""
+    mpi = MPIHandler()
+    mpi.recv_exit()
+    logger.info("Different Rank observed exception. Finalizing.")
+    sys.exit(1)
+
+
+def gracefull_error(func):
+    """Wrap enabling MPI shutdown on Exception.
+
+    Handles errors inside the wrapped function gracefully.
+    I. e. Sends termination to all Ranks to finalize MPI.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        mpi = MPIHandler()
+        try:
+            if mpi.probe_exit():
+                handle_gracefull_exit()
+            value = func(*args, **kwargs)
+        except Exception:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            tb_list = traceback.format_exception(exc_type, exc_value, exc_tb)
+            tb_str = "".join(tb_list)
+            logger.error("In function %s: \n %s", func.__name__, tb_str)
+            value = None
+            send_gracefull_exit()
+        return value
+
+    return wrapper
+
+
 class Tag(IntEnum):
     """Make tags easier to understand."""
 
@@ -118,9 +167,31 @@ class MPIHandler:
         training_color = (
             MPI.UNDEFINED if self._wrank == self.config.TRAINING_WRANK else 0
         )
+        if self._wrank == self.config.TRAINING_WRANK:
+            training_name = MPI.Get_processor_name()
+        else:
+            training_name = ""
+        training_name = self.wcomm.bcast(training_name, self.config.TRAINING_WRANK)
         avail_comm = self.wcomm.Split(training_color, self._wrank)
         if avail_comm != MPI.COMM_NULL:
-            self.ncomm: MPI.Comm = avail_comm.Split_type(MPI.COMM_TYPE_SHARED)
+            avail_ncomm: MPI.Comm = avail_comm.Split_type(MPI.COMM_TYPE_SHARED)
+            avail_size = avail_ncomm.Get_size()
+            avail_rank = avail_ncomm.Get_rank()
+
+            # Group by GPU
+            name = MPI.Get_processor_name()
+            if name == training_name:
+                num_gpus = max(torch.cuda.device_count() - 1, 1)
+            else:
+                num_gpus = torch.cuda.device_count()
+            num_per_gpu = avail_size // num_gpus
+            bp_rank = avail_size % num_gpus
+            ncomm_color = (
+                avail_rank // (num_per_gpu + 1)
+                if avail_rank <= bp_rank
+                else avail_rank // num_per_gpu
+            )
+            self.ncomm: MPI.Comm = avail_ncomm.Split(ncomm_color, avail_rank)
             self._nrank = self.ncomm.Get_rank()
             self._nsize = self.ncomm.Get_size()
 
@@ -129,24 +200,18 @@ class MPIHandler:
                 MPI.UNDEFINED if self._nrank == self.config.INFERENCE_NRANK else 0
             )
             avail_comm = self.ncomm.Split(inference_color, self._nrank)
-
-            number_observers = (
-                self.config.PROCESSES_PER_NODE // self.config.AGENTS_PER_OBSERVER
+            processes_per_gpu = self.ncomm.Get_size()
+            gpu_rank = self.ncomm.Get_rank()
+            number_observers = round(
+                processes_per_gpu / self.config.AGENTS_PER_OBSERVER
             )
-            wasted_resources = (
-                number_observers * self.config.PROCESSES_PER_NODE
-                - self.config.PROCESSES_PER_NODE
+            bp_rank = processes_per_gpu % number_observers
+            observer_color = (
+                gpu_rank // (number_observers + 1)
+                if gpu_rank <= bp_rank
+                else gpu_rank // number_observers
             )
-            if wasted_resources != 0:
-                logger.warning(
-                    "Number of Agents (%i) per Observer (%i) does fill Node Processes (%i) correctly. Wasted Processes: %i",
-                    self.config.AGENTS_PER_OBSERVER,
-                    number_observers,
-                    self.config.PROCESSES_PER_NODE,
-                    wasted_resources,
-                )
-
-            observer_color = avail_comm.Get_rank() // self.config.PROCESSES_PER_NODE
+            logger.info("%s %s %s", processes_per_gpu, observer_color, number_observers)
             self.ocomm = self.ncomm.Split(observer_color, self._nrank)
             if self.ocomm != MPI.COMM_NULL:
                 self._orank = self.ocomm.Get_rank()
@@ -294,20 +359,21 @@ class MPIHandler:
         """
         logger.debug("Broadcasting weights.")
         if self._wrank == self.config.TRAINING_WRANK:
-            bytestream: bytearray = model.to_bytestream()
+            bytestream: bytes = model.to_bytestream()
+            buffer = memoryview(bytestream)
             _ = self._bcast_size(len(bytestream))
         else:
             size = self._bcast_size(0)
-            bytestream: bytearray = bytearray(size)
+            buffer = bytearray(size)
         req: MPI.Request = self.cnncomm.Ibcast(
-            [bytestream, MPI.BYTE],
+            [buffer, MPI.BYTE],
             self._cnn_training_rank,
         )
         if not self._wrank == self.config.TRAINING_WRANK:
             req.Wait()
-            model.from_bytestream(bytestream)
+            model.from_bytestream(bytes(buffer))
 
-    # -- Synchronize Observer and Agents
+    # --- Synchronize Observer and Agents ---
     def bcast_decided_move(
         self, move: tuple[int, int, int, int, int] | None
     ) -> tuple[int, int, int, int, int]:
@@ -405,52 +471,3 @@ class MPIHandler:
             torch.from_numpy(message["values"]),
             torch.from_numpy(message["move_tensors"]),
         )
-
-
-def send_gracefull_exit():
-    """Gracefully Shutdown all processes."""
-    mpi = MPIHandler()
-    requests = mpi.send_exit()
-    mpi.recv_exit()
-    start_time = time()
-    while requests and time() - start_time <= mpi.config.MPI_SHUTDOWN_WAIT:
-        to_remove: list[MPI.Request] = []
-        for req in requests:
-            if req.Get_status():
-                to_remove.append(req)
-        [requests.remove(req) for req in to_remove]
-    mpi.wcomm.Abort(1)
-
-
-def handle_gracefull_exit():
-    """Handle exit call."""
-    mpi = MPIHandler()
-    mpi.recv_exit()
-    logger.info("Different Rank observed exception. Finalizing.")
-    sys.exit(1)
-
-
-def gracefull_error(func):
-    """Wrap enabling MPI shutdown on Exception.
-
-    Handles errors inside the wrapped function gracefully.
-    I. e. Sends termination to all Ranks to finalize MPI.
-    """
-
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        mpi = MPIHandler()
-        try:
-            if mpi.probe_exit():
-                handle_gracefull_exit()
-            value = func(*args, **kwargs)
-        except Exception:
-            exc_type, exc_value, exc_tb = sys.exc_info()
-            tb_list = traceback.format_exception(exc_type, exc_value, exc_tb)
-            tb_str = "".join(tb_list)
-            logger.error("In function %s: \n %s", func.__name__, tb_str)
-            value = None
-            send_gracefull_exit()
-        return value
-
-    return wrapper
