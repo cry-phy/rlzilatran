@@ -253,9 +253,13 @@ class MPIHandler:
                 f"Started MPI with wcomm with {self._wsize} processes, inference on {self.wranks}"
             )
         self._init = True
+
+    @gracefull_error
+    def get_device(self) -> torch.device:
+        """Return the current device."""
         if self.device is None:
             raise ValueError("Cuda Device not set. Exiting.")
-            self.force_exit()
+        return self.device
 
     def force_exit(self):
         """Force world comm abort."""

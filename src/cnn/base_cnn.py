@@ -9,6 +9,7 @@ class CNN(nn.Module):
 
     def __init__(self, device: torch.device) -> None:
         """Set values for all CNNs."""
+        super().__init__()
         self.device = device
 
     def from_bytestream(self, bytestream: bytes) -> None:

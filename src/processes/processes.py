@@ -95,7 +95,7 @@ class TrainingProcess(MPIProcess):
             128,
             Constants.state_tensor_shape,
             Constants.move_tensor_shape,
-            handler.device,
+            handler.get_device(),
         )
         self.trainer = Trainer.from_config(self.cnn, config)
         self.mpi = handler
@@ -137,6 +137,7 @@ class InferenceProcess(MPIProcess):
             128,
             Constants.state_tensor_shape,
             Constants.move_tensor_shape,
+            handler.get_device(),
         )
         self.mpi = handler
         self.leaf_batch_num = config.cnn.leaf_batch_num
