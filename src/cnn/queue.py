@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, Iterator, TypeVar
 from mpi4py.MPI import Request
 from collections import deque
 import torch
@@ -32,7 +32,7 @@ class EpisodeItem(BaseItem):
 
 
 class Queue(Generic[Item]):
-    """Wrapper around Deque for only retrieving fully recived messages."""
+    """Wrapper around Deque for only retrieving fully recieved messages."""
 
     def __init__(self, batch_size: int) -> None:
         """Generate an empty Queue object."""
@@ -65,3 +65,22 @@ class Queue(Generic[Item]):
         for i in ready_indices:
             del self._data[i]
         return batch
+
+
+class ReplayBuffer(Generic[Item]):
+    """Deque holding the last N moves."""
+
+    size: int
+
+    def __init__(self, size: int) -> None:
+        """Generate underlying deque."""
+        self.size = size
+        self._data = deque(maxlen=self.size)
+
+    def add(self, items: list[Item]) -> None:
+        """Add new items to replay buffer."""
+        self._data.extendleft(items)
+
+    def __iter__(self) -> Iterator[Item]:
+        """Get iterable of underlying Data."""
+        return iter(self._data)

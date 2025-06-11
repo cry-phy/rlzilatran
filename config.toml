@@ -3,6 +3,7 @@ TRAINING_WRANK = 0
 INFERENCE_NRANK = 0
 OBSERVER_ORANK = 0
 MPI_SHUTDOWN_WAIT = 10
+AGENTS_PER_OBSERVER = 1
 
 [obs]
 GUI = true
@@ -12,3 +13,4 @@ agent2 = "MinimaxAgent"
 [cnn]
 leaf_batch_num = 8
 episode_batch_num = 1
+replay_buffer_size = 500000

@@ -30,14 +30,14 @@ class ProcessError(Exception):
 def get_process(config: Settings, handler: MPIHandler) -> MPIProcess:
     """Return the MPIProcess that is supposed to be run on this Rank."""
     logger.debug("Getting processes.")
-    if handler._wrank == handler.TRAINING_WRANK:
+    if handler._wrank == handler.config.TRAINING_WRANK:
         return TrainingProcess(config, handler)
-    elif handler._nrank == handler.INFERENCE_NRANK:
+    elif handler._nrank == handler.config.INFERENCE_NRANK:
         return InferenceProcess(config, handler)
     game: Game = Game.new_game()
     agent_cls1: type[BaseAgent] = config.agent_class_dict[config.obs.agent1]
     agent_cls2: type[BaseAgent] = config.agent_class_dict[config.obs.agent2]
-    if handler._orank == handler.OBSERVER_ORANK:
+    if handler._orank == handler.config.OBSERVER_ORANK:
         if config.obs.GUI:
             return UIObserverProcess(
                 game=game,
@@ -70,7 +70,7 @@ class MPIProcess:
 
         doing it in the class block provides some issues at import time.
         """
-        logger.debug("Initialized %s on rank %i", self.__class__.__name__)
+        logger.info("Initialized %s.", self.__class__.__name__)
 
     def run(self) -> None:
         """Run the Process."""
@@ -89,7 +89,7 @@ class TrainingProcess(MPIProcess):
         super().__init__()
         self.queue = Queue(Constants.BATCH_SIZE)
         self.dataset, self.dataloader = get_episode_loader(
-            self.queue, Constants.BATCH_SIZE
+            self.queue, Constants.BATCH_SIZE, config.cnn.replay_buffer_size
         )
         self.cnn = SmallCNN(
             128,
@@ -279,6 +279,7 @@ class UIObserverProcess(ObserverProcess):
         agent_cls2: type[BaseAgent],
     ) -> None:
         """Set up observer and distribute game and agents."""
+        logger.info("Initialized %s.", self.__class__.__name__)
         self.obs: UIObserver = cast(
             UIObserver, UIObserver.any_vs_any(game, agent_cls1, agent_cls2)
         )

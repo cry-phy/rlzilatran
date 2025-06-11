@@ -50,8 +50,8 @@ if [ -z "$1" ]; then echo "The parameter jobname (at position 1) must be specifi
 for ARG in "$@"; do
   case $ARG in
       -h=*|--help=*)
-        show_help 
-        exit 
+        show_help
+        exit
         ;;
       -q=*|--queue=*)
         QUEUE_NAME="${1#*=}"
@@ -118,7 +118,10 @@ NUM_NODES=$(( (TOTAL_CPUS + CPUS_PER_NODE - 1) / CPUS_PER_NODE ))
 # Provide user Feedback
 echo "Reserving $NUM_NODES nodes for $NUM_PROCESSES tasks with $THREADS_PER_PROCESS threads per task"
 
-echo "\#SBATCH --mem-per-cpu=${MEM_in_MB}M" 
+# Generate correct Conda environment
+CONDA_BASE_PATH="/home/christof/miniconda3/"
+CONDA_ENV_NAME="rlzilatran"
+
 # Prepare Working directory and provide Slurm script
 mkdir -p $JOBNAME
 echo "#!/bin/bash
@@ -138,30 +141,45 @@ echo "#!/bin/bash
 # disables core dump file generation
 ulimit -c 0
 
-conda activate rlzilatran
+source ${CONDA_BASE_PATH}/etc/profile.d/conda.sh
+conda activate "${CONDA_ENV_NAME}"
+
+echo "Using Python:"
+which python
 
 mkdir out
 TMPDIR=./out
 
-module purge
-mpiexec --hostfile <(scontrol show hostnames $SLURM_JOB_NODELIST) --np $NUM_PROCESSES --map-by ppr:$THREADS_PER_PROCESS:core -- python ../src/main.py $JOBNAME >> $JOBNAME.log" > $JOBNAME/run.$JOBNAME.slurm
+mpiexec --hostfile <(scontrol show hostnames $SLURM_JOB_NODELIST) --np $NUM_PROCESSES --map-by ppr:$THREADS_PER_PROCESS:core -- python ../src/main.py $JOBNAME >> $JOBNAME.log
+conda deactivate
+" > $JOBNAME/run.$JOBNAME.slurm
 
 # Copy config from:
 #  Job directory if it already exists
 #  Current directory if it exists
 #  Warn user when using backup config as backup (used for debugging, can be removed at any time)
-if [ -f ./$JOBNAME/config.yaml ]; then
+if [ -f ./$JOBNAME/config.toml ]; then
   echo "Config is not copied since already exists"
 else
   if [ -f ./config.toml ]; then
     echo "Using config from current directory"
-    cp -n config.yaml $JOBNAME
-  else 
+    cp --update=none config.toml $JOBNAME
+  else
     echo "ERROR: NO config found!"
     exit
   fi
 fi
-
+if [ -f ./$JOBNAME/constants.json ]; then
+  echo "Constants is not copied since already exists"
+else
+  if [ -f ./constants.json ]; then
+    echo "Using config from current directory"
+    cp --update=none constants.json $JOBNAME
+  else
+    echo "ERROR: NO constants.json found!"
+    exit
+  fi
+fi
 echo "Stating Job: $JOBNAME"
 
 cd $JOBNAME

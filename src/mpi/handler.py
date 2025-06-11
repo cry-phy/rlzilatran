@@ -21,6 +21,55 @@ import sys
 logger = logging.getLogger(__name__)
 
 
+def send_gracefull_exit():
+    """Gracefully Shutdown all processes."""
+    mpi = MPIHandler()
+    requests = mpi.send_exit()
+    mpi.recv_exit()
+    start_time = time()
+    while requests and time() - start_time <= mpi.config.MPI_SHUTDOWN_WAIT:
+        to_remove: list[MPI.Request] = []
+        for req in requests:
+            if req.Get_status():
+                to_remove.append(req)
+        [requests.remove(req) for req in to_remove]
+    mpi.wcomm.Abort(1)
+
+
+def handle_gracefull_exit():
+    """Handle exit call."""
+    mpi = MPIHandler()
+    mpi.recv_exit()
+    logger.info("Different Rank observed exception. Finalizing.")
+    sys.exit(1)
+
+
+def gracefull_error(func):
+    """Wrap enabling MPI shutdown on Exception.
+
+    Handles errors inside the wrapped function gracefully.
+    I. e. Sends termination to all Ranks to finalize MPI.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        mpi = MPIHandler()
+        try:
+            if mpi.probe_exit():
+                handle_gracefull_exit()
+            value = func(*args, **kwargs)
+        except Exception:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            tb_list = traceback.format_exception(exc_type, exc_value, exc_tb)
+            tb_str = "".join(tb_list)
+            logger.error("In function %s: \n %s", func.__name__, tb_str)
+            value = None
+            send_gracefull_exit()
+        return value
+
+    return wrapper
+
+
 class Tag(IntEnum):
     """Make tags easier to understand."""
 
@@ -72,7 +121,7 @@ class MPIHandler:
     token = TokenHandler()
     _init = False
 
-    def __new__(cls, config: Settings | None = None) -> "MPIHandler":
+    def __new__(cls, config: Settings | None = None) -> MPIHandler:
         """Singleton Instance."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -92,10 +141,7 @@ class MPIHandler:
             return
 
         if config is not None:
-            self.TRAINING_WRANK = config.mpi.TRAINING_WRANK
-            self.INFERENCE_NRANK = config.mpi.INFERENCE_NRANK
-            self.OBSERVER_ORANK = config.mpi.OBSERVER_ORANK
-            self.MPI_SHUTDOWN_WAIT = config.mpi.MPI_SHUTDOWN_WAIT
+            self.config = config.mpi
         else:
             raise ValueError(
                 "Config must be passed to the first time MPIHandler is created."
@@ -118,37 +164,68 @@ class MPIHandler:
         self._cnnsize: int | None = None
 
         # Node comm setup
-        training_color = MPI.UNDEFINED if self._wrank == self.TRAINING_WRANK else 0
+        training_color = (
+            MPI.UNDEFINED if self._wrank == self.config.TRAINING_WRANK else 0
+        )
+        if self._wrank == self.config.TRAINING_WRANK:
+            training_name = MPI.Get_processor_name()
+        else:
+            training_name = ""
+        training_name = self.wcomm.bcast(training_name, self.config.TRAINING_WRANK)
         avail_comm = self.wcomm.Split(training_color, self._wrank)
         if avail_comm != MPI.COMM_NULL:
-            self.ncomm: MPI.Comm = avail_comm.Split_type(MPI.COMM_TYPE_SHARED)
+            avail_ncomm: MPI.Comm = avail_comm.Split_type(MPI.COMM_TYPE_SHARED)
+            avail_size = avail_ncomm.Get_size()
+            avail_rank = avail_ncomm.Get_rank()
+
+            # Group by GPU
+            name = MPI.Get_processor_name()
+            if name == training_name:
+                num_gpus = max(torch.cuda.device_count() - 1, 1)
+            else:
+                num_gpus = torch.cuda.device_count()
+            if num_gpus == 0:
+                raise ValueError("No GPUS detected! Cannot continue.")
+            num_per_gpu = avail_size // num_gpus
+            bp_rank = avail_size % num_gpus
+            ncomm_color = (
+                avail_rank // (num_per_gpu + 1)
+                if avail_rank <= bp_rank
+                else avail_rank // num_per_gpu
+            )
+            self.ncomm: MPI.Comm = avail_ncomm.Split(ncomm_color, avail_rank)
             self._nrank = self.ncomm.Get_rank()
             self._nsize = self.ncomm.Get_size()
 
             # Observer-Agent comm setup
-            inference_color = (
-                MPI.UNDEFINED if self._nrank == self.INFERENCE_NRANK else 0
-            )
-            self.ocomm = self.ncomm.Split(inference_color, self._nrank)
-            if self.ocomm != MPI.COMM_NULL:
-                self._orank = self.ocomm.Get_rank()
-                self._osize = self.ocomm.Get_size()
+            color = MPI.UNDEFINED if self._nrank == self.config.INFERENCE_NRANK else 0
+            avail_comm = self.ncomm.Split(color, self._nrank)
+            if avail_comm != MPI.COMM_NULL:
+                processes_per_gpu = avail_comm.Get_size()
+                gpu_rank = avail_comm.Get_rank()
+                number_observers = processes_per_gpu // self.config.AGENTS_PER_OBSERVER
+                bp_rank = processes_per_gpu % number_observers
+                observer_color = (
+                    gpu_rank // (self.config.AGENTS_PER_OBSERVER + 1)
+                    if gpu_rank <= bp_rank
+                    else gpu_rank // self.config.AGENTS_PER_OBSERVER
+                )
+                self.ocomm = avail_comm.Split(observer_color, self._nrank)
+                if self.ocomm != MPI.COMM_NULL:
+                    self._orank = self.ocomm.Get_rank()
+                    self._osize = self.ocomm.Get_size()
 
         # Get world comm ranks of inference ranks
-        is_inference = self._nrank == self.INFERENCE_NRANK
-        logger.debug(f"Rank {self._wrank} is inference: {is_inference}")
-        are_inference = self.wcomm.allgather(is_inference)
-        self.inference_wranks = torch.where(
-            torch.tensor(are_inference, dtype=torch.bool)
+        is_cnn = (
+            self._nrank == self.config.INFERENCE_NRANK
+            or self._wrank == self.config.TRAINING_WRANK
         )
+        logger.debug(f"Rank {self._wrank} is inference: {is_cnn}")
+        are_cnn = self.wcomm.allgather(is_cnn)
+        self.wranks = torch.where(torch.tensor(are_cnn, dtype=torch.bool))[0]
 
         # Weight sending comm setup
-        cnn_color = (
-            0
-            if self._wrank in self.inference_wranks
-            or self._wrank == self.TRAINING_WRANK
-            else MPI.UNDEFINED
-        )
+        cnn_color = MPI.UNDEFINED if self._wrank not in self.wranks else 0
         self.cnncomm = self.wcomm.Split(cnn_color, self._wrank)
         if self.cnncomm != MPI.COMM_NULL:
             self._cnnrank = self.cnncomm.Get_rank()
@@ -156,14 +233,15 @@ class MPIHandler:
 
             # Broadcast training rank in the cnn comm to all
             self._cnn_training_rank = self.wcomm.bcast(
-                self._cnnrank, self.TRAINING_WRANK
+                self._cnnrank, self.config.TRAINING_WRANK
             )
 
         if self._wrank == 0:
             logger.info(
-                f"Started MPI with wcomm with {self._wsize} processes, inference on {self.inference_wranks}"
+                f"Started MPI with wcomm with {self._wsize} processes, inference on {self.wranks}"
             )
         self._init = True
+        logger.info("%s %s %s %s", self._wrank, self._nrank, self._orank, self._cnnrank)
 
     def force_exit(self):
         """Force world comm abort."""
@@ -212,7 +290,9 @@ class MPIHandler:
         message["states"] = np_states
         message["values"] = np_values
         message["move_tensor"] = np_move_tensors
-        self.wcomm.Isend([message, MPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE))
+        self.wcomm.Isend(
+            [message, MPI.BYTE], self.config.TRAINING_WRANK, int(Tag.EPISODE)
+        )
 
     def probe_episode(self, source: int) -> bool:
         """Probe if episode was sent from rank."""
@@ -248,7 +328,7 @@ class MPIHandler:
     def send_weights_ready(self) -> None:
         """Send data to all processes that weights are ready."""
         empty_msg = np.empty(0, dtype="b")
-        for target in self.inference_wranks:
+        for target in self.wranks:
             self.wcomm.Isend([empty_msg, MPI.BYTE], target, int(Tag.NOTIFY_WEIGHTS))
 
     def probe_weights_ready(self) -> bool:
@@ -262,7 +342,7 @@ class MPIHandler:
 
     def _bcast_size(self, size: int) -> int:
         """Blocking size distribution to allow for non blocking."""
-        size = self.cnncomm.bcast(size, self.TRAINING_WRANK)
+        size = self.cnncomm.bcast(size, self.config.TRAINING_WRANK)
         return size
 
     def bcast_weights(self, model: CNN) -> None:
@@ -273,33 +353,34 @@ class MPIHandler:
         for NCCL direct GPU-GPU interaction.
         """
         logger.debug("Broadcasting weights.")
-        if self._wrank == self.TRAINING_WRANK:
-            bytestream = model.to_bytestream()
+        if self._wrank == self.config.TRAINING_WRANK:
+            bytestream: bytes = model.to_bytestream()
+            buffer = memoryview(bytestream)
             _ = self._bcast_size(len(bytestream))
         else:
             size = self._bcast_size(0)
-            bytestream = bytearray(size)
+            buffer = bytearray(size)
         req: MPI.Request = self.cnncomm.Ibcast(
-            [bytestream, MPI.BYTE],
+            [buffer, MPI.BYTE],
             self._cnn_training_rank,
         )
-        if not self._wrank == self.TRAINING_WRANK:
+        if not self._wrank == self.config.TRAINING_WRANK:
             req.Wait()
-            model.from_bytestream(bytestream)
+            model.from_bytestream(bytes(buffer))
 
-    # -- Synchronize Observer and Agents
+    # --- Synchronize Observer and Agents ---
     def bcast_decided_move(
         self, move: tuple[int, int, int, int, int] | None
     ) -> tuple[int, int, int, int, int]:
         """Broadcast new game state to all agents."""
         logger.debug("Broadcasting decided move.")
-        if self._orank == self.OBSERVER_ORANK:
+        if self._orank == self.config.OBSERVER_ORANK:
             if move is None:
                 raise ValueError("Attempting to Bcast None from self.OBSERVER_ORANK.")
         else:
             if move is not None:
                 raise ValueError("Attempting to send data on Agent Rank.")
-        return self.ocomm.bcast(move, self.OBSERVER_ORANK)
+        return self.ocomm.bcast(move, self.config.OBSERVER_ORANK)
 
     def reduce_move_tensors(self, move_tensor: torch.Tensor) -> torch.Tensor:
         """Gather all move suggestion tensors from agents."""
@@ -312,7 +393,9 @@ class MPIHandler:
     def reduce_values(self, value: float) -> float | None:
         """Reduce values from all ocomm."""
         logger.debug("Reducing values.")
-        red_value: float | None = self.ocomm.reduce(value, MPI.SUM, self.OBSERVER_ORANK)
+        red_value: float | None = self.ocomm.reduce(
+            value, MPI.SUM, self.config.OBSERVER_ORANK
+        )
         return red_value
 
     # --- Leaves from Agents to Inference ---
@@ -320,7 +403,7 @@ class MPIHandler:
         """Send Leaf batch to inference, returning a unique Token."""
         np_leaves = leaf_batch.numpy()
         message = self.token.tokenize_data(np_leaves)
-        self.ncomm.Isend([message, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH))
+        self.ncomm.Isend([message, MPI.BYTE], self.config.NRANK, int(Tag.LEAF_BATCH))
         return int(message["token"])
 
     def probe_leaf_batch(self, nsource: int) -> bool:
@@ -373,58 +456,9 @@ class MPIHandler:
                 ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
             ],
         )
-        self.ncomm.Recv([message, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
+        self.ncomm.Recv([message, MPI.BYTE], self.config.NRANK, int(Tag.VALUE_BATCH))
         return (
             int(message["token"]),
             torch.from_numpy(message["values"]),
             torch.from_numpy(message["move_tensors"]),
         )
-
-
-def send_gracefull_exit():
-    """Gracefully Shutdown all processes."""
-    mpi = MPIHandler()
-    requests = mpi.send_exit()
-    mpi.recv_exit()
-    start_time = time()
-    while requests and time() - start_time <= mpi.MPI_SHUTDOWN_WAIT:
-        to_remove: list[MPI.Request] = []
-        for req in requests:
-            if req.Get_status():
-                to_remove.append(req)
-        [requests.remove(req) for req in to_remove]
-    mpi.wcomm.Abort(1)
-
-
-def handle_gracefull_exit():
-    """Handle exit call."""
-    mpi = MPIHandler()
-    mpi.recv_exit()
-    logger.info("Different Rank observed exception. Finalizing.")
-    sys.exit(1)
-
-
-def gracefull_error(func):
-    """Wrap enabling MPI shutdown on Exception.
-
-    Handles errors inside the wrapped function gracefully.
-    I. e. Sends termination to all Ranks to finalize MPI.
-    """
-
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        mpi = MPIHandler()
-        try:
-            if mpi.probe_exit():
-                handle_gracefull_exit()
-            value = func(*args, **kwargs)
-        except Exception:
-            exc_type, exc_value, exc_tb = sys.exc_info()
-            tb_list = traceback.format_exception(exc_type, exc_value, exc_tb)
-            tb_str = "".join(tb_list)
-            logger.error("In function %s: \n %s", func.__name__, tb_str)
-            value = None
-            send_gracefull_exit()
-        return value
-
-    return wrapper
