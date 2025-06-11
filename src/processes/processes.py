@@ -95,6 +95,7 @@ class TrainingProcess(MPIProcess):
             128,
             Constants.state_tensor_shape,
             Constants.move_tensor_shape,
+            handler.device,
         )
         self.trainer = Trainer.from_config(self.cnn, config)
         self.mpi = handler

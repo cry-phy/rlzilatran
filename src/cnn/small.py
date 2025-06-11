@@ -1,4 +1,5 @@
 from torch import nn
+import torch
 
 from cnn.base_cnn import CNN
 
@@ -11,9 +12,10 @@ class SmallCNN(CNN):
         num_filters: int,
         state_shape: tuple[int, ...],
         move_shape: tuple[int, ...],
+        device: torch.device,
     ) -> None:
         """Generate CNN."""
-        super().__init__()
+        super().__init__(device)
 
         self.num_filters = num_filters
         self.state_shape = state_shape

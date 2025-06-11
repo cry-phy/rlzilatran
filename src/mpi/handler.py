@@ -163,14 +163,23 @@ class MPIHandler:
         self._cnnrank: int | None = None
         self._cnnsize: int | None = None
 
+        self.device: torch.device | None = None
+
         # Node comm setup
         training_color = (
             MPI.UNDEFINED if self._wrank == self.config.TRAINING_WRANK else 0
         )
         if self._wrank == self.config.TRAINING_WRANK:
             training_name = MPI.Get_processor_name()
+            num_gpus = torch.cuda.device_count()
+            if num_gpus == 0:
+                raise ValueError("No GPUS detected! Cannot continue.")
+            if num_gpus >= 2:
+                self.device = torch.device(f"cuda:{num_gpus - 2}")
+            else:
+                self.device = torch.device("cuda:0")
         else:
-            training_name = ""
+            training_name = "NON_TRAINING_NODE"
         training_name = self.wcomm.bcast(training_name, self.config.TRAINING_WRANK)
         avail_comm = self.wcomm.Split(training_color, self._wrank)
         if avail_comm != MPI.COMM_NULL:
@@ -184,8 +193,7 @@ class MPIHandler:
                 num_gpus = max(torch.cuda.device_count() - 1, 1)
             else:
                 num_gpus = torch.cuda.device_count()
-            if num_gpus == 0:
-                raise ValueError("No GPUS detected! Cannot continue.")
+
             num_per_gpu = avail_size // num_gpus
             bp_rank = avail_size % num_gpus
             ncomm_color = (
@@ -193,6 +201,7 @@ class MPIHandler:
                 if avail_rank <= bp_rank
                 else avail_rank // num_per_gpu
             )
+            self.device = torch.device(f"cuda:{ncomm_color}")
             self.ncomm: MPI.Comm = avail_ncomm.Split(ncomm_color, avail_rank)
             self._nrank = self.ncomm.Get_rank()
             self._nsize = self.ncomm.Get_size()
@@ -220,7 +229,10 @@ class MPIHandler:
             self._nrank == self.config.INFERENCE_NRANK
             or self._wrank == self.config.TRAINING_WRANK
         )
-        logger.debug(f"Rank {self._wrank} is inference: {is_cnn}")
+        if is_cnn:
+            logger.info(
+                f"Rank {self._wrank} is using {torch.cuda.get_device_name(self.device)} for CNN."
+            )
         are_cnn = self.wcomm.allgather(is_cnn)
         self.wranks = torch.where(torch.tensor(are_cnn, dtype=torch.bool))[0]
 
@@ -241,7 +253,9 @@ class MPIHandler:
                 f"Started MPI with wcomm with {self._wsize} processes, inference on {self.wranks}"
             )
         self._init = True
-        logger.info("%s %s %s %s", self._wrank, self._nrank, self._orank, self._cnnrank)
+        if self.device is None:
+            raise ValueError("Cuda Device not set. Exiting.")
+            self.force_exit()
 
     def force_exit(self):
         """Force world comm abort."""
