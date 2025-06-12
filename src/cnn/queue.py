@@ -62,7 +62,7 @@ class Queue(Generic[Item]):
             return []
         ready_indices = torch.arange(len(self))[ready_mask]
         batch = [self._data[i] for i in ready_indices]
-        for i in ready_indices:
+        for i in ready_indices.__reversed__():
             del self._data[i]
         return batch
 
