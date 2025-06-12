@@ -6,7 +6,7 @@ MPI_SHUTDOWN_WAIT = 10
 AGENTS_PER_OBSERVER = 1
 
 [obs]
-GUI = true
+GUI = false
 agent1 = "MinimaxAgent"
 agent2 = "MinimaxAgent"
 
