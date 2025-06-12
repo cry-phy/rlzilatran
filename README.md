@@ -41,4 +41,4 @@ poetry run coverage html
 
 For details regarding the Considerations, Planning and more:
 
-[Summary](resources/Summary.md)
+### [Summary](resources/Summary.md)
