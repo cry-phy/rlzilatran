@@ -2,6 +2,9 @@ from typing import Iterator
 import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from cnn.queue import EpisodeItem, LeafItem, Queue, ReplayBuffer
+import logging
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 # non_blocking = True
@@ -37,6 +40,7 @@ class EpisodeDataset(IterableDataset):
         """Generate Iterator for frozen super batch."""
         super_batch_items = self.queue.retrieve_ready()
         self.replay_buffer.add(super_batch_items)
+        logger.info("Using %i recorded batches.", len(self.replay_buffer))
         yield from self.replay_buffer
 
 

@@ -84,3 +84,7 @@ class ReplayBuffer(Generic[Item]):
     def __iter__(self) -> Iterator[Item]:
         """Get iterable of underlying Data."""
         return iter(self._data)
+
+    def __len__(self) -> int:
+        """Get length of buffer."""
+        return len(self._data)

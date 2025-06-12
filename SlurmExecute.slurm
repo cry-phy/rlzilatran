@@ -126,7 +126,7 @@ CONDA_ENV_NAME="rlzilatran"
 mkdir -p $JOBNAME
 echo "#!/bin/bash
 
-#SBATCH --job-name=ga.$JOBNAME
+#SBATCH --job-name=zilatran.$JOBNAME
 #SBATCH --time=$EST_CALC_TIME:0:0
 
 
