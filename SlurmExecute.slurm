@@ -30,6 +30,7 @@ for ARG in "$@"; do
 done
 echo "Preparing slurm script for RLZilatran:"
 
+# Generate correct Conda environment
 # Standard values for the parameters
 STD_QUEUE_NAME="std"
 STD_NUM_PROCESSES="1"
@@ -37,6 +38,7 @@ STD_THREADS_PER_PROCESS="1"
 STD_EST_CALC_TIME="1"
 STD_MEM_in_MB="1000"
 STD_NUM_GPUS="2"
+STD_CONDA_ENV="rlzilatran"
 
 # Set Standard values
 QUEUE_NAME="$STD_QUEUE_NAME"
@@ -45,6 +47,7 @@ THREADS_PER_PROCESS="$STD_THREADS_PER_PROCESS"
 EST_CALC_TIME="$STD_EST_CALC_TIME"
 MEM_in_MB="$STD_MEM_in_MB"
 NUM_GPUS="$STD_NUM_GPUS"
+CONDA_ENV="$STD_CONDA_ENV"
 PREPARE=false
 
 # Check through flags
@@ -84,6 +87,9 @@ for ARG in "$@"; do
         NUM_GPUS="${1#*=}"
         shift
         ;;
+      --conda=*)
+        CONDA_ENV="${1#*=}"
+        shift;;
       --prepare)
         PREPARE=true
         shift
@@ -101,6 +107,7 @@ if [ "$NUM_PROCESSES" = "$STD_NUM_PROCESSES" ]; then echo "The number of process
 if [ "$THREADS_PER_PROCESS" = "$STD_THREADS_PER_PROCESS" ]; then echo "The number of threads per process defaults to $THREADS_PER_PROCESS."; fi
 if [ "$EST_CALC_TIME" = "$STD_EST_CALC_TIME" ]; then echo "The estimated calculation time in hours defaults to $EST_CALC_TIME."; fi
 if [ "$MEM_in_MB" = "$STD_MEM_in_MB" ]; then echo "The memory per cpu defaults too $MEM_in_MB."; fi
+if [ "$CONDA_ENV" = "$STD_CONDA_ENV" ]; then echo "Using default conda environment $CONDA_ENV."; fi
 
 
 # Check to use CPUs per node
@@ -129,9 +136,6 @@ NUM_NODES=$(( (TOTAL_CPUS + CPUS_PER_NODE - 1) / CPUS_PER_NODE ))
 # Provide user Feedback
 echo "Reserving $NUM_NODES nodes for $NUM_PROCESSES tasks with $THREADS_PER_PROCESS threads per task"
 
-# Generate correct Conda environment
-CONDA_BASE_PATH="/home/christof/miniconda3/"
-CONDA_ENV_NAME="rlzilatran"
 
 # Prepare Working directory and provide Slurm script
 mkdir -p $JOBNAME
@@ -142,9 +146,9 @@ echo "#!/bin/bash
 #SBATCH --nodes=$NUM_NODES
 #SBATCH --ntasks=$NUM_PROCESSES
 #SBATCH --cpus-per-task=$THREADS_PER_PROCESS
-#SBATCH --gpus=2
+export SRUN_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-1}
+#SBATCH --gpus=$NUM_GPUS
 #SBATCH --mem-per-cpu=${MEM_in_MB}M
-#SBATCH --mem-per-gpu=6G
 #SBATCH --output=$JOBNAME/$JOBNAME.log
 #SBATCH --output=$JOBNAME/$JOBNAME.log
 
@@ -154,16 +158,13 @@ echo "#!/bin/bash
 # disables core dump file generation
 ulimit -c 0
 
-source ${CONDA_BASE_PATH}/etc/profile.d/conda.sh
-conda activate "${CONDA_ENV_NAME}"
+conda activate "${CONDA_ENV}"
 
 echo "Using Python:"
 which python
+sinfo -o "%P %G %D %N"
 
-mkdir out
-TMPDIR=./out
-
-mpiexec --hostfile <(scontrol show hostnames $SLURM_JOB_NODELIST) --np $NUM_PROCESSES --map-by ppr:$THREADS_PER_PROCESS:core -- python ../src/main.py $JOBNAME
+srun --mpi=pmi2 --export=ALL python ../src/main.py $JOBNAME
 conda deactivate
 " > $JOBNAME/run.$JOBNAME.slurm
 
