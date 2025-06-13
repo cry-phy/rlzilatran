@@ -36,6 +36,7 @@ STD_NUM_PROCESSES="1"
 STD_THREADS_PER_PROCESS="1"
 STD_EST_CALC_TIME="1"
 STD_MEM_in_MB="1000"
+STD_NUM_GPUS="2"
 
 # Set Standard values
 QUEUE_NAME="$STD_QUEUE_NAME"
@@ -43,6 +44,8 @@ NUM_PROCESSES="$STD_NUM_PROCESSES"
 THREADS_PER_PROCESS="$STD_THREADS_PER_PROCESS"
 EST_CALC_TIME="$STD_EST_CALC_TIME"
 MEM_in_MB="$STD_MEM_in_MB"
+NUM_GPUS="$STD_NUM_GPUS"
+PREPARE=false
 
 # Check through flags
 if [ -z "$1" ]; then echo "The parameter jobname (at position 1) must be specified. Call the function like
@@ -75,6 +78,14 @@ for ARG in "$@"; do
         ;;
       -m=*|--memory=*)
         MEM_in_MB="${1#*=}"
+        shift
+        ;;
+      -g=*|--gpus=*)
+        NUM_GPUS="${1#*=}"
+        shift
+        ;;
+      --prepare)
+        PREPARE=true
         shift
         ;;
       *)
@@ -128,15 +139,17 @@ echo "#!/bin/bash
 
 #SBATCH --job-name=zilatran.$JOBNAME
 #SBATCH --time=$EST_CALC_TIME:0:0
-
-
-#SBATCH --ntasks=$NUM_PROCESSES
 #SBATCH --nodes=$NUM_NODES
+#SBATCH --ntasks=$NUM_PROCESSES
 #SBATCH --cpus-per-task=$THREADS_PER_PROCESS
+#SBATCH --gpus=2
 #SBATCH --mem-per-cpu=${MEM_in_MB}M
+#SBATCH --mem-per-gpu=6G
+#SBATCH --output=$JOBNAME/$JOBNAME.log
+#SBATCH --output=$JOBNAME/$JOBNAME.log
 
-#SBATCH --threads-per-core=2
-#SBATCH --hint=multithread
+#SBATCH --hint=nomultithread
+#SBATCH --partition=gpustd.q
 
 # disables core dump file generation
 ulimit -c 0
@@ -150,7 +163,7 @@ which python
 mkdir out
 TMPDIR=./out
 
-mpiexec --hostfile <(scontrol show hostnames $SLURM_JOB_NODELIST) --np $NUM_PROCESSES --map-by ppr:$THREADS_PER_PROCESS:core -- python ../src/main.py $JOBNAME >> $JOBNAME.log
+mpiexec --hostfile <(scontrol show hostnames $SLURM_JOB_NODELIST) --np $NUM_PROCESSES --map-by ppr:$THREADS_PER_PROCESS:core -- python ../src/main.py $JOBNAME
 conda deactivate
 " > $JOBNAME/run.$JOBNAME.slurm
 
@@ -165,10 +178,11 @@ else
     echo "Using config from current directory"
     cp --update=none config.toml $JOBNAME
   else
-    echo "ERROR: NO config found!"
+    echo "ERROR: No config found!"
     exit
   fi
 fi
+
 if [ -f ./$JOBNAME/constants.json ]; then
   echo "Constants is not copied since already exists"
 else
@@ -182,6 +196,12 @@ else
 fi
 echo "Stating Job: $JOBNAME"
 
-cd $JOBNAME
-sbatch run.$JOBNAME.slurm
-cd ..
+if [ "$PREPARE" = false ]; then
+  cd $JOBNAME
+  sbatch run.$JOBNAME.slurm
+  cd ..
+else
+ echo "Not running submission script as run with --prepare flag."
+ echo "Can be run manually with:"
+ echo "   sbatch run.$JOBNAME.slurm"
+fi

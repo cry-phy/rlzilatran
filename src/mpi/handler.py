@@ -135,8 +135,10 @@ class MPIHandler:
         Observer rank 0:    Observer process
         Observer comm is needed for BCast and AllReduce of the move suggestions.
         For reference please see resources/Processes.png.
+
+        !!! Will remove Singleton Pattern soon !!!
         """
-        # Guard against multiple initializeations due to MPIHandler calls in class blocks.
+        # Guard against multiple initializations due to MPIHandler calls in class blocks.
         if self._init:
             return
 
@@ -171,15 +173,19 @@ class MPIHandler:
         )
         if self._wrank == self.config.TRAINING_WRANK:
             training_name = MPI.Get_processor_name()
-            num_gpus = torch.cuda.device_count()
-            if num_gpus == 0:
-                raise ValueError("No GPUS detected! Cannot continue.")
-            if num_gpus >= 2:
-                self.device = torch.device(f"cuda:{num_gpus - 2}")
+            if self.config.NUM_GPUS == 0:
+                raise ValueError("No GPUS! Cannot continue.")
+            if self.config.NUM_GPUS >= 2:
+                self.device = torch.device(f"cuda:{self.config.NUM_GPUS - 1}")
             else:
                 self.device = torch.device("cuda:0")
         else:
             training_name = "NON_TRAINING_NODE"
+
+        name = MPI.Get_processor_name()
+        if name == training_name:
+            self.config.NUM_GPUS = self.config.NUM_GPUS - 1
+
         training_name = self.wcomm.bcast(training_name, self.config.TRAINING_WRANK)
         avail_comm = self.wcomm.Split(training_color, self._wrank)
         if avail_comm != MPI.COMM_NULL:
@@ -188,14 +194,8 @@ class MPIHandler:
             avail_rank = avail_ncomm.Get_rank()
 
             # Group by GPU
-            name = MPI.Get_processor_name()
-            if name == training_name:
-                num_gpus = max(torch.cuda.device_count() - 1, 1)
-            else:
-                num_gpus = torch.cuda.device_count()
-
-            num_per_gpu = avail_size // num_gpus
-            bp_rank = avail_size % num_gpus
+            num_per_gpu = avail_size // self.config.NUM_GPUS
+            bp_rank = avail_size % self.config.NUM_GPUS
             ncomm_color = (
                 avail_rank // (num_per_gpu + 1)
                 if avail_rank <= bp_rank
@@ -347,7 +347,9 @@ class MPIHandler:
         """Send data to all processes that weights are ready."""
         empty_msg = np.empty(0, dtype="b")
         for target in self.wranks:
-            self.wcomm.Isend([empty_msg, MPI.BYTE], target, int(Tag.NOTIFY_WEIGHTS))
+            self.wcomm.Isend(
+                [empty_msg, MPI.BYTE], int(target), int(Tag.NOTIFY_WEIGHTS)
+            )
 
     def probe_weights_ready(self) -> bool:
         """Check if a notification of weights ready exists."""
@@ -421,7 +423,9 @@ class MPIHandler:
         """Send Leaf batch to inference, returning a unique Token."""
         np_leaves = leaf_batch.numpy()
         message = self.token.tokenize_data(np_leaves)
-        self.ncomm.Isend([message, MPI.BYTE], self.config.NRANK, int(Tag.LEAF_BATCH))
+        self.ncomm.Isend(
+            [message, MPI.BYTE], self.config.INFERENCE_NRANK, int(Tag.LEAF_BATCH)
+        )
         return int(message["token"])
 
     def probe_leaf_batch(self, nsource: int) -> bool:
@@ -474,7 +478,9 @@ class MPIHandler:
                 ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
             ],
         )
-        self.ncomm.Recv([message, MPI.BYTE], self.config.NRANK, int(Tag.VALUE_BATCH))
+        self.ncomm.Recv(
+            [message, MPI.BYTE], self.config.INFERENCE_NRANK, int(Tag.VALUE_BATCH)
+        )
         return (
             int(message["token"]),
             torch.from_numpy(message["values"].squeeze(0)),
