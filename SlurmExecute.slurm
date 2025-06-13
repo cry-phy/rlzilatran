@@ -49,6 +49,7 @@ MEM_in_MB="$STD_MEM_in_MB"
 NUM_GPUS="$STD_NUM_GPUS"
 CONDA_ENV="$STD_CONDA_ENV"
 PREPARE=false
+SBATCH_TEST_ONLY=""
 
 # Check through flags
 if [ -z "$1" ]; then echo "The parameter jobname (at position 1) must be specified. Call the function like
@@ -92,6 +93,7 @@ for ARG in "$@"; do
         shift;;
       --prepare)
         PREPARE=true
+        SBATCH_TEST_ONLY="#SBATCH --test-only"
         shift
         ;;
       *)
@@ -136,37 +138,8 @@ NUM_NODES=$(( (TOTAL_CPUS + CPUS_PER_NODE - 1) / CPUS_PER_NODE ))
 # Provide user Feedback
 echo "Reserving $NUM_NODES nodes for $NUM_PROCESSES tasks with $THREADS_PER_PROCESS threads per task"
 
-
 # Prepare Working directory and provide Slurm script
 mkdir -p $JOBNAME
-echo "#!/bin/bash
-
-#SBATCH --job-name=zilatran.$JOBNAME
-#SBATCH --time=$EST_CALC_TIME:0:0
-#SBATCH --nodes=$NUM_NODES
-#SBATCH --ntasks=$NUM_PROCESSES
-#SBATCH --cpus-per-task=$THREADS_PER_PROCESS
-export SRUN_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-1}
-#SBATCH --gpus=$NUM_GPUS
-#SBATCH --mem-per-cpu=${MEM_in_MB}M
-#SBATCH --output=$JOBNAME/$JOBNAME.log
-#SBATCH --output=$JOBNAME/$JOBNAME.log
-
-#SBATCH --hint=nomultithread
-#SBATCH --partition=gpustd.q
-
-# disables core dump file generation
-ulimit -c 0
-
-conda activate "${CONDA_ENV}"
-
-echo "Using Python:"
-which python
-sinfo -o "%P %G %D %N"
-
-srun --mpi=pmi2 --export=ALL python ../src/main.py $JOBNAME
-conda deactivate
-" > $JOBNAME/run.$JOBNAME.slurm
 
 # Copy config from:
 #  Job directory if it already exists
@@ -177,7 +150,7 @@ if [ -f ./$JOBNAME/config.toml ]; then
 else
   if [ -f ./config.toml ]; then
     echo "Using config from current directory"
-    cp --update=none config.toml $JOBNAME
+    cp config.toml $JOBNAME
   else
     echo "ERROR: No config found!"
     exit
@@ -189,20 +162,66 @@ if [ -f ./$JOBNAME/constants.json ]; then
 else
   if [ -f ./constants.json ]; then
     echo "Using config from current directory"
-    cp --update=none constants.json $JOBNAME
+    cp constants.json $JOBNAME
   else
     echo "ERROR: NO constants.json found!"
     exit
   fi
 fi
-echo "Stating Job: $JOBNAME"
 
+write_sbatch_header() {
+  # The output file is the first argument passed to the function ($1)
+  local output_file="$1"
+  cat << EOF > "$output_file"
+#!/bin/bash
+$SBATCH_TEST_ONLY
+#SBATCH --job-name=rlz.$JOBNAME
+#SBATCH --time=$EST_CALC_TIME:0:1
+#SBATCH --nodes=$NUM_NODES
+#SBATCH --ntasks=$NUM_PROCESSES
+#SBATCH --cpus-per-task=$THREADS_PER_PROCESS
+export SRUN_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-1}
+#SBATCH --gpus=$NUM_GPUS
+#SBATCH --mem-per-cpu=${MEM_in_MB}M
+#SBATCH --output=$JOBNAME/$JOBNAME.log
+#SBATCH --hint=nomultithread
+EOF
+}
+
+# --- Create the main run script ---
+echo "Creating run script..."
+write_sbatch_header "$JOBNAME/run.$JOBNAME.slurm"
+cat << EOF >> "$JOBNAME/run.$JOBNAME.slurm"
+
+# -- Conda env setup --
+module load Anaconda3/2023.10/miniconda-base-2023.10
+eval "\$(\$UIBK_CONDA_DIR/bin/conda shell.bash hook)"
+conda activate "$CONDA_ENV"
+echo "Using Python: \$(which python)"
+
+# -- Main execution part --
+srun --mpi=pmi2 --export=ALL python ../src/main.py "$JOBNAME"
+conda deactivate
+EOF
+
+
+# --- Create the estimation script ---
+echo "Creating estimation script..."
+write_sbatch_header "$JOBNAME/estimate.$JOBNAME.slurm"
+
+# --- Decide what to run ---
 if [ "$PREPARE" = false ]; then
-  cd $JOBNAME
-  sbatch run.$JOBNAME.slurm
+  echo "Starting Job: $JOBNAME"
+  cd "$JOBNAME"
+  sbatch "run.$JOBNAME.slurm"
   cd ..
 else
- echo "Not running submission script as run with --prepare flag."
- echo "Can be run manually with:"
- echo "   sbatch run.$JOBNAME.slurm"
-fi
+  echo "Not running submission script as run with --prepare flag."
+  echo "Can be run manually with:"
+  echo "    sbatch run.$JOBNAME.slurm"
+  echo "Currently estimating Batch execution time using $JOBNAME/estimate.$JOBNAME.slurm:"
+  cd "$JOBNAME"
+  sbatch "estimate.$JOBNAME.slurm"
+  cd ..
+fi 
+

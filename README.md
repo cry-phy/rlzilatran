@@ -3,6 +3,21 @@
 ## Slurm Usage
 
 To get the project running using the Slurm Workload manager and conda first ensure that poetry does not currently have a venv (In case remove it.). Then create a conda environment (default is *rlzilatran*) using ac compatible python version. Then simply let poetry install to said env.
+
+This necessitates a conda environment with the following requirements:
+```
+pip
+gcc_linux-64 
+gxx_linux-64 
+gfortran_linux-64
+poetry>=2.1.0
+mpi4py>=4.0.3,<5.0.0
+```
+
+mpi4py uses an existing installation since its compilation/configuration is usually specific to the system.
+
+Then the other packages can be installed
+
 ```bash
 poetry config virtualenvs.create false --local
 conda activate rlzilatran # or your conda environment
@@ -14,7 +29,7 @@ Usage is then centralized to [Slurm script](SlurmExecute.slurm).
 
 This project uses poetry for managing dependencies for Python 3.10. To use use the environment run
 ```bash
-poetry install
+poetry install --with mpi
 poetry env activate
 ```
 
