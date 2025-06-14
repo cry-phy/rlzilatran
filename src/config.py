@@ -1,21 +1,6 @@
-import os
 from dynaconf import Dynaconf
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel
 from agents import agent_class_dict
-
-
-class MPIConfig(BaseModel):
-    """MPI Config."""
-
-    TRAINING_WRANK: int = Field(0, ge=0)
-    INFERENCE_NRANK: int = Field(0, ge=0)
-    OBSERVER_ORANK: int = Field(0, ge=0)
-    MPI_SHUTDOWN_WAIT: float = Field(10.0, gt=0)
-    AGENTS_PER_OBSERVER: int = Field(4, gt=0)
-    PROCESSES_PER_NODE: int = Field(..., gt=0)
-    GPU_ENV_VARIABLE: str = Field("config.mpi.GPU_ENV_VARIABLE")
-
-    NUM_GPUS: int = PrivateAttr(default=0)
 
 
 class OBSConfig(BaseModel):
@@ -37,7 +22,6 @@ class CNNConfig(BaseModel):
 class Settings(Dynaconf):
     """Dynaconf settings class."""
 
-    mpi: MPIConfig
     obs: OBSConfig
     cnn: CNNConfig
 
@@ -56,11 +40,4 @@ def get_config() -> Settings:
             environments=False,
         )
         _config.agent_class_dict = agent_class_dict()
-        num_gpus = int(os.environ[_config.mpi.GPU_ENV_VARIABLE])
-        if num_gpus is not None:
-            _config.mpi.NUM_GPUS = num_gpus
-        else:
-            raise ValueError(
-                "Cannot load number of GPUS from %s", _config.mpi.GPU_ENV_VARIABLE
-            )
     return _config
