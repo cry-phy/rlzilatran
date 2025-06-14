@@ -1,0 +1,37 @@
+#!/bin/bash
+
+{%- if test_only %}
+#SBATCH --test-only
+{%- endif %}
+# General Options Block
+#SBATCH --job-name={{ jobname_prefix }}_{{ jobname }}
+#SBATCH --nodes={{ nodes }}
+#SBATCH --output={{ jobname }}.log
+#SBATCH --time={{ time }}
+
+{%- if queue %}
+#SBATCH --partition={{ queue }}
+{%- endif %}
+
+# GPU process block
+#SBATCH --ntasks={{ gpu_processes }}
+#SBATCH --gres=gpu:a30:{{ gpu_processes }}
+#SBATCH --cpus-per-task={{ gpu_threads }}
+#SBATCH --mem={{ gpu_memory }}MB
+
+# CPU process block
+#SBATCH hetjob
+#SBATCH --ntasks={{ cpu_processes }}
+#SBATCH --cpus-per-task={{ cpu_threads }}
+#SBATCH --mem={{ cpu_memory }}MB
+
+# -- Conda env setup --
+module load Anaconda3/2023.10/miniconda-base-2023.10
+eval "$($UIBK_CONDA_DIR/bin/conda shell.bash hook)"
+conda activate {{ conda_env }}
+echo "Using Python: $(which python)"
+
+# -- Main execution part --
+srun --mpi=pmi2 --export=ALL \
+    echo "Hello from GPU task" \
+  : echo "Hello from CPU task"

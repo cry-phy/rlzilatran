@@ -1,0 +1,24 @@
+[general]
+hostname = "archlinux"
+mode = "dev"
+queue = "std"
+conda_env = "rlzilatran"
+cpus_per_node = 20
+gpus_per_node = 2
+
+[prod]
+nodes = 1
+time = 10:00:00
+
+[prod.gpu]
+threads_per_gpu = 8
+mem_per_process = 4000
+hyperthreading = false
+
+[prod.cpu]
+threads_per_process = 1
+mem_per_process = 1000
+hyperthreading = false
+
+[dev]
+num_processes = 4
