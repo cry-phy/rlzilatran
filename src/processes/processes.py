@@ -30,14 +30,14 @@ class ProcessError(Exception):
 def get_process(config: Settings, handler: MPIHandler) -> MPIProcess:
     """Return the MPIProcess that is supposed to be run on this Rank."""
     logger.debug("Getting processes.")
-    if handler._wrank == handler.config.TRAINING_WRANK:
+    if handler.wrank == handler.TRAINING_WRANK:
         return TrainingProcess(config, handler)
-    elif handler._nrank == handler.config.INFERENCE_NRANK:
+    elif handler.nrank == handler.INFERENCE_NRANK:
         return InferenceProcess(config, handler)
     game: Game = Game.new_game()
     agent_cls1: type[BaseAgent] = config.agent_class_dict[config.obs.agent1]
     agent_cls2: type[BaseAgent] = config.agent_class_dict[config.obs.agent2]
-    if handler._orank == handler.config.OBSERVER_ORANK:
+    if handler.orank == handler.OBSERVER_ORANK:
         if config.obs.GUI:
             return UIObserverProcess(
                 game=game,
@@ -109,7 +109,7 @@ class TrainingProcess(MPIProcess):
     @gracefull_error
     def main_step(self) -> None:
         """Run a single step in the process loop."""
-        for source in range(self.mpi._wsize):
+        for source in range(self.mpi.wsize):
             if self.mpi.probe_episode(source):
                 req, states, values, move_tensor = self.mpi.recv_episode(source)
                 item = EpisodeItem(req, states, values, move_tensor)
@@ -156,7 +156,7 @@ class InferenceProcess(MPIProcess):
             self.mpi.bcast_weights(self.cnn)
             logger.info("Recieved Weights.")
 
-        for nrank in range(cast(int, self.mpi._nsize)):
+        for nrank in range(cast(int, self.mpi.nsize)):
             if self.mpi.probe_leaf_batch(nrank):
                 req, token, source, data = self.mpi.recv_leaf_batch(nrank)
                 item = LeafItem(req, data, source, token)

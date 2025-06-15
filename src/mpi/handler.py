@@ -156,7 +156,7 @@ class MPIHandler:
 
         name = MPI.Get_processor_name()
         if name == training_name:
-            num_gpus = num_gpus - 1
+            num_gpus = max(num_gpus - 1, 1)
 
         return num_gpus
 
@@ -190,7 +190,7 @@ class MPIHandler:
             comm = MPI.COMM_NULL
             rank = None
             size = None
-            device = None
+            device = self.device
         return comm, rank, size, device
 
     def _split_observer(
@@ -211,7 +211,7 @@ class MPIHandler:
                     if gpu_rank <= bp_rank
                     else gpu_rank // agents_per_observer
                 )
-                comm = avail_comm.Split(observer_color, gpu_rank)
+                comm = tempcomm.Split(observer_color, gpu_rank)
 
                 # If actually part of Observer
                 if comm != MPI.COMM_NULL:
@@ -280,6 +280,7 @@ class MPIHandler:
         instance.cnn_training_rank = cnn_training_rank
 
         instance._init = True
+        logger.info(instance.device)
         return instance
 
     def __init__(self) -> None:
@@ -411,8 +412,8 @@ class MPIHandler:
     def send_weights_ready(self) -> None:
         """Send data to all processes that weights are ready."""
         empty_msg = np.empty(0, dtype="b")
-        for target in self.wranks:
-            self.wcomm.Isend(
+        for target in range(self.cnnsize):
+            self.cnncomm.Isend(
                 [empty_msg, MPI.BYTE], int(target), int(Tag.NOTIFY_WEIGHTS)
             )
 
