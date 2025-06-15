@@ -30,9 +30,10 @@ class ProcessError(Exception):
 def get_process(config: Settings, handler: MPIHandler) -> MPIProcess:
     """Return the MPIProcess that is supposed to be run on this Rank."""
     logger.debug("Getting processes.")
-    if handler.wrank == handler.TRAINING_WRANK:
+
+    if handler.is_training():
         return TrainingProcess(config, handler)
-    elif handler.nrank == handler.INFERENCE_NRANK:
+    elif handler.is_inference():
         return InferenceProcess(config, handler)
     game: Game = Game.new_game()
     agent_cls1: type[BaseAgent] = config.agent_class_dict[config.obs.agent1]

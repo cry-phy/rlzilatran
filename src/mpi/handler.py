@@ -117,6 +117,8 @@ class MPIHandler:
     token = TokenHandler()
     _init = False
 
+    valid_process = ("training", "inference", "worker")
+
     def __new__(cls) -> MPIHandler:
         """Singleton Instance."""
         if cls._instance is None:
@@ -124,24 +126,119 @@ class MPIHandler:
         return cls._instance
 
     @classmethod
-    def slurm(cls, process: str) -> MPIHandler:
-        """Generate MPIHandler for Slurm hetjob execution."""
-        instance = cls()
+    @gracefull_error
+    def slurm_test(cls, num_gpus: int, agents_per_observer: int) -> MPIHandler:
+        """Emulate Slurm MPI handler locally."""
+        comm = MPI.COMM_WORLD
+        size = comm.Get_size()
+        rank = comm.Get_rank()
+        processes = (
+            ["training"] + ["inference"] * num_gpus + ["worker"] * (size - num_gpus - 1)
+        )
+        return cls.slurm(processes[rank], agents_per_observer)
 
-        valid_process = ["training", "inference", "worker"]
-        if process not in valid_process:
-            raise ValueError(f"{process} is not a valid process {valid_process}")
-        duties = instance.wcomm.allgather((instance.wrank, process))
-        ranks, processes = zip(*duties, strict=True)
-        training_index = processes.index("training")
-        instance.TRAINING_WRANK = ranks[training_index]
+    @classmethod
+    @gracefull_error
+    def slurm(cls, process: str, agents_per_observer: int) -> MPIHandler:
+        """Generate MPIHandler for Slurm hetjob execution."""
+        if process not in cls.valid_process:
+            raise ValueError(f"{process} is not a valid process {cls.valid_process}")
+
+        instance = cls()
+        instance.process = process
+
+        if process == "worker" and torch.cuda.is_available():
+            logger.warning(
+                f"Rank {instance.wrank} was assigned a GPU, but the process role '{process}' does not require it."
+            )
+        if process in ("training", "inference") and not torch.cuda.is_available():
+            raise RuntimeError(
+                f"Rank {instance.wrank} was not assigned a GPU, but the process role '{process}' requires it."
+            )
+
+        if process in ("training", "inference"):
+            instance.device = torch.device("cuda:0")
+            logger.info(
+                "Assigning %s to this process.",
+                torch.cuda.get_device_name(instance.device),
+            )
+
+        world_duties = instance.wcomm.allgather((instance.wrank, process))
+        training_ranks = [r for r, p in sorted(world_duties) if p == "training"]
+
+        if not training_ranks:
+            raise RuntimeError("No training ranks found — cannot assign.")
+
+        num_training = len(training_ranks)
+        bp_rank = instance.wsize % num_training
+        block_size = instance.wsize // num_training
+
+        if instance.wrank < (block_size + 1) * bp_rank:
+            block_index = instance.wrank // (block_size + 1)
+        else:
+            block_index = (instance.wrank - bp_rank) // block_size
+
+        instance.TRAINING_WRANK = training_ranks[block_index]
+
+        non_training_comm = instance._split_training()
+        if non_training_comm != MPI.COMM_NULL:
+            instance.ncomm = non_training_comm.Split_type(MPI.COMM_TYPE_SHARED)
+            instance.nrank = instance.ncomm.Get_rank()
+            instance.nsize = instance.ncomm.Get_size()
+
+            node_duties = instance.ncomm.allgather((instance.nrank, process))
+            inference_ranks = [r for r, p in sorted(node_duties) if p == "inference"]
+
+            if not inference_ranks:
+                raise RuntimeError(
+                    "No inference ranks found on this node — cannot assign."
+                )
+
+            num_inference = len(inference_ranks)
+            bp_rank = instance.nsize % num_inference
+            block_size = instance.nsize // num_inference
+
+            if instance.nrank < (block_size + 1) * bp_rank:
+                block_index = instance.nrank // (block_size + 1)
+            else:
+                block_index = (instance.nrank - bp_rank) // block_size
+
+            instance.INFERENCE_NRANK = inference_ranks[block_index]
+
+            color = MPI.UNDEFINED if instance.is_inference() else 0
+            non_inference_comm = instance.ncomm.Split(color, instance.nrank)
+            if non_inference_comm != MPI.COMM_NULL:
+                non_inference_size = non_inference_comm.Get_size()
+                non_inference_rank = non_inference_comm.Get_rank()
+                number_observers = non_inference_size // agents_per_observer
+                bp_rank = non_inference_size % number_observers
+                observer_color = (
+                    non_inference_rank // (agents_per_observer + 1)
+                    if non_inference_rank <= bp_rank
+                    else non_inference_rank // agents_per_observer
+                )
+                instance.ocomm = non_inference_comm.Split(
+                    observer_color, non_inference_rank
+                )
+                instance.orank = instance.ocomm.Get_rank()
+                instance.osize = instance.ocomm.Get_size()
+
+        cnn_wranks = instance._get_cnn_wranks()
+        cnncomm, cnnrank, cnnsize, cnn_training_rank = instance._split_cnn(
+            instance.wcomm, cnn_wranks
+        )
+        instance.cnncomm = cnncomm
+        instance.cnnrank = cnnrank
+        instance.cnnsize = cnnsize
+
+        instance.cnn_training_rank = cnn_training_rank
 
         return instance
 
-    @gracefull_error
     def _avail_num_gpus(self, num_gpus: int) -> int:
         """Validate and calculate the number of available gpus for this process."""
         if self.wrank == self.TRAINING_WRANK:
+            self.process = "training"
             training_name = MPI.Get_processor_name()
             if num_gpus == 0:
                 raise ValueError("No GPUS! Cannot continue.")
@@ -186,6 +283,8 @@ class MPIHandler:
             comm = tempcomm.Split(color, temprank)
             rank = comm.Get_rank()
             size = comm.Get_size()
+            if rank == self.INFERENCE_NRANK:
+                self.process = "inference"
         else:
             comm = MPI.COMM_NULL
             rank = None
@@ -214,10 +313,9 @@ class MPIHandler:
                 comm = tempcomm.Split(observer_color, gpu_rank)
 
                 # If actually part of Observer
-                if comm != MPI.COMM_NULL:
-                    rank = comm.Get_rank()
-                    size = comm.Get_size()
-                    return comm, rank, size
+                rank = comm.Get_rank()
+                size = comm.Get_size()
+                return comm, rank, size
 
         # Default
         comm = MPI.COMM_NULL
@@ -227,7 +325,7 @@ class MPIHandler:
 
     def _get_cnn_wranks(self) -> torch.Tensor:
         """Get world comm ranks of inference ranks."""
-        is_cnn = self.nrank == self.INFERENCE_NRANK or self.wrank == self.TRAINING_WRANK
+        is_cnn = self.is_training() or self.is_inference()
         if is_cnn:
             logger.info(
                 f"Rank {self.wrank} is using {torch.cuda.get_device_name(self.device)} for CNN."
@@ -255,8 +353,16 @@ class MPIHandler:
         return comm, rank, size, cnn_training_rank
 
     @classmethod
+    @gracefull_error
     def local(cls, num_gpus: int, agents_per_observer: int) -> MPIHandler:
-        """Generate MPIHandler for local execution."""
+        """!!! DEPRECATED !!!.
+
+        Will be replaced by slurm_test soon.
+
+        Generate MPIHandler for local execution.
+        """
+        logger.warning("local standard exeution be replaced by slurm test soon.")
+
         instance = cls()
         avail_gpus = instance._avail_num_gpus(num_gpus)
         non_train_comm = instance._split_training()
@@ -279,8 +385,6 @@ class MPIHandler:
 
         instance.cnn_training_rank = cnn_training_rank
 
-        instance._init = True
-        logger.info(instance.device)
         return instance
 
     def __init__(self) -> None:
@@ -297,6 +401,7 @@ class MPIHandler:
         # Guard against multiple initializations due to MPIHandler calls in class blocks.
         if self._init:
             return
+
         self.MPI_SHUTDOWN_WAIT = 30
         self.TRAINING_WRANK = 0
         self.INFERENCE_NRANK = 0
@@ -319,15 +424,37 @@ class MPIHandler:
         self.cnnsize: int | None = None
 
         self.device: torch.device | None = None
+        self.process: str = "UNNASSIGNED"
 
         self.cnn_training_rank: int | None = None
+        self._init = True
 
-    @gracefull_error
     def get_device(self) -> torch.device:
         """Return the current device."""
+        print("run", self.device)
         if self.device is None:
             raise ValueError("Cuda Device not set. Exiting.")
         return self.device
+
+    def is_training(self) -> bool:
+        """Check if this rank is an inference Process."""
+        return self.process == "training"
+
+    def is_inference(self) -> bool:
+        """Check if this rank is an inference Process."""
+        return self.process == "inference"
+
+    def is_observer(self) -> bool:
+        """Check if this rank is an inference Process."""
+        return self.orank == self.OBSERVER_ORANK
+
+    def is_agent(self) -> bool:
+        """Check if this rank is an inference Process."""
+        return (
+            not self.is_training()
+            and not self.is_inference()
+            and not self.is_observer()
+        )
 
     def force_exit(self):
         """Force world comm abort."""
