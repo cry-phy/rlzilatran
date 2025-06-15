@@ -60,7 +60,7 @@ def cli() -> None:
 
 @cli.command()
 @click.option("-ng", "--num_gpus", default=1, type=int)
-@click.option("-apo", "--agents_per_observer", default=4, type=int)
+@click.option("-apo", "--agents-per-observer", default=4, type=int)
 def local(num_gpus, agents_per_observer):
     """Generate MPIHandler for local run."""
     logger, config = prepare()
@@ -70,7 +70,7 @@ def local(num_gpus, agents_per_observer):
 
 @cli.command()
 @click.option("--process", default=None, type=str)
-@click.option("-apo", "--agents_per_observer", default=1, type=int)
+@click.option("-apo", "--agents-per-observer", default=1, type=int)
 def slurm(process, agents_per_observer):
     """Generate MPI Handler by process type."""
     logger, config = prepare()
@@ -80,7 +80,7 @@ def slurm(process, agents_per_observer):
 
 @cli.command()
 @click.option("-ng", "--num_gpus", default=1, type=int)
-@click.option("-apo", "--agents_per_observer", default=1, type=int)
+@click.option("-apo", "--agents-per-observer", default=1, type=int)
 def slurm_test(num_gpus, agents_per_observer):
     """Generate MPI Handler emulating slurm usage on local machine."""
     logger, config = prepare()

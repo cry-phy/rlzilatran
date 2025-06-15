@@ -28,6 +28,7 @@ for ARG in "$@"; do
             ;;
     esac
 done
+echo "!!!DEPRECATED!!! Use submit.py instead!"
 echo "Preparing slurm script for RLZilatran:"
 
 # Generate correct Conda environment
@@ -223,5 +224,4 @@ else
   cd "$JOBNAME"
   sbatch "estimate.$JOBNAME.slurm"
   cd ..
-fi 
-
+fi

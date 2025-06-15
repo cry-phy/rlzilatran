@@ -26,10 +26,13 @@ def check_hostname(cfg):
 @click.option("-n", "--nodes", default=None, type=int, help="Number of filled nodes")
 @click.option("-q", "--queue", default=None, type=str, help="SLURM partition")
 @click.option("--conda_env", default=None, type=str, help="Conda environment to use.")
+@click.option("-apo", "--agents-per-observer", default=None, type=int)
 @click.option("-ntc", "--threads-cpu-process", default=None, type=int)
-@click.option("-ntg", "--threads-gpu-process", default=None, type=int)
+@click.option("-ntg", "--threads-gpu-training", default=None, type=int)
+@click.option("-ngi", "--threads-gpu-inference", default=None, type=int)
 @click.option("-mc", "--memory-cpu", default=None, type=int, help="MB per CPU Process")
-@click.option("-mg", "--memory-gpu", default=None, type=int, help="MB per GPU Process")
+@click.option("-mgt", "--memory-gpu-training", default=None, type=int)
+@click.option("-mgi", "--memory-gpu-inference", default=None, type=int)
 @click.option("--prepare", is_flag=True, help="Only prepare scripts, don't submit")
 @click.option("--dry-run", is_flag=True, help="Run without full node requirement")
 def main(
@@ -38,16 +41,20 @@ def main(
     nodes,
     queue,
     conda_env,
+    agents_per_observer,
     threads_cpu_process,
-    threads_gpu_process,
+    threads_gpu_training,
+    threads_gpu_inference,
     memory_cpu,
-    memory_gpu,
+    memory_gpu_training,
+    memory_gpu_inference,
     prepare,
     dry_run,
 ):
-    """Generate slurm run config."""
+    """Generate slurm run config with separate GPU allocations for training and inference."""
     cfg = toml.load(open("slurm.toml"))
 
+    # Override sections
     overrides = {
         "general": {"queue": queue, "conda_env": conda_env},
         "prod": {"time": time, "nodes": nodes},
@@ -55,9 +62,14 @@ def main(
             "threads_per_process": threads_cpu_process,
             "mem_per_process": memory_cpu,
         },
-        "prod.gpu": {
-            "threads_per_gpu": threads_gpu_process,
-            "mem_per_process": memory_gpu,
+        "prod.gpu.training": {
+            "threads_per_gpu": threads_gpu_training,
+            "mem_per_process": memory_gpu_training,
+        },
+        "prod.gpu.inference": {
+            "threads_per_gpu": threads_gpu_inference,
+            "mem_per_process": memory_gpu_inference,
+            "agents_per_observer": agents_per_observer,
         },
     }
 
@@ -73,29 +85,44 @@ def main(
             if value is not None:
                 subcfg[key] = value
 
-    # Set general mode
+    # General mode and dry-run
     cfg.setdefault("general", {})
-    cfg["general"]["mode"] = "dev" if dry_run else cfg["general"]["mode"]
+    cfg["general"]["mode"] = "dev" if dry_run else cfg["general"].get("mode", "prod")
     cfg["general"]["prepare"] = prepare
-
     mode = cfg["general"]["mode"]
 
+    # Compute processes per role
     gpus_per_node = cfg["general"]["gpus_per_node"]
-    gpu_threads = cfg["prod"]["gpu"]["threads_per_gpu"]
-    gpu_processes = gpus_per_node
+    gpu_train_proc = cfg["prod"]["gpu"]["training_processes"] = cfg["prod"]["gpu"].get(
+        "training_processes", gpus_per_node
+    )
+    gpu_inf_proc = cfg["prod"]["gpu"]["inference_processes"] = cfg["prod"]["gpu"].get(
+        "inference_processes", gpus_per_node
+    )
 
+    gpu_threads_t = cfg["prod"]["gpu"]["training"]["threads_per_gpu"]
+    gpu_threads_i = cfg["prod"]["gpu"]["inference"]["threads_per_gpu"]
+    gpu_mem_t = cfg["prod"]["gpu"]["training"]["mem_per_process"]
+    gpu_mem_i = cfg["prod"]["gpu"]["inference"]["mem_per_process"]
+
+    if mode == "dev":
+        cfg["prod"]["time"]
+
+    # CPU processes
     if mode == "prod":
-        cpu_avail = cfg["general"]["cpus_per_node"] - gpu_processes * gpu_threads
+        cpu_avail = cfg["general"]["cpus_per_node"] - (
+            gpu_train_proc * gpu_threads_t + gpu_inf_proc * gpu_threads_i
+        )
         threads_per_cpu = cfg["prod"]["cpu"]["threads_per_process"]
         cpu_processes = cpu_avail // threads_per_cpu
     elif mode == "dev":
         dev_total = cfg["prod"].get("num_processes", 4)
-        cpu_processes = max(1, dev_total - gpu_processes)
+        cpu_processes = max(1, dev_total - gpu_train_proc - gpu_inf_proc)
     else:
         raise ValueError(f"{mode} is not a valid general.mode")
-
     cfg["prod"]["cpu"]["cpu_processes"] = cpu_processes
 
+    # Prepare output directory
     print(f"Preparing Job directory: {jobname}")
     os.makedirs(jobname, exist_ok=True)
     for fname in ("config.toml", "constants.json"):
@@ -104,25 +131,67 @@ def main(
             click.echo(f"Copying {fname} → {jobname}/")
             shutil.copy(fname, target)
 
+    # Render sbatch header
     tmpl = Template(open("sbatch_header.j2").read())
     header = tmpl.render(
         jobname_prefix="rlz",
         jobname=jobname,
-        test_only=prepare,
+        test_only=False,
         conda_env=cfg["general"]["conda_env"],
         time=cfg["prod"]["time"],
         nodes=cfg["prod"]["nodes"],
         queue=cfg["general"].get("queue", "std"),
-        gpu_processes=gpu_processes,
-        gpu_threads=cfg["prod"]["gpu"]["threads_per_gpu"],
-        gpu_memory=cfg["prod"]["gpu"]["mem_per_process"],
-        cpu_processes=cfg["prod"]["cpu"]["cpu_processes"],
+        gpu_train_proc=gpu_train_proc,
+        gpu_threads_t=gpu_threads_t,
+        gpu_mem_t=gpu_mem_t,
+        gpu_inf_proc=gpu_inf_proc,
+        gpu_threads_i=gpu_threads_i,
+        gpu_mem_i=gpu_mem_i,
+        cpu_processes=cpu_processes,
         cpu_threads=cfg["prod"]["cpu"]["threads_per_process"],
         cpu_memory=cfg["prod"]["cpu"]["mem_per_process"],
+        agents_per_observer=cfg["prod"]["cpu"]["agents_per_observer"],
     )
-    with open(os.path.join(jobname, "submit.slurm"), "w") as f:
+    run_slurm_path = os.path.join(jobname, f"run.{jobname}.slurm")
+    with open(run_slurm_path, "w") as f:
         f.write(header)
-    print("Done writing run script")
+    print("Done writing run script.")
+
+    est_header = tmpl.render(
+        jobname_prefix="rlz",
+        jobname=jobname,
+        test_only=True,
+        conda_env=cfg["general"]["conda_env"],
+        time=cfg["prod"]["time"],
+        nodes=cfg["prod"]["nodes"],
+        queue=cfg["general"].get("queue", "std"),
+        gpu_train_proc=gpu_train_proc,
+        gpu_threads_t=gpu_threads_t,
+        gpu_mem_t=gpu_mem_t,
+        gpu_inf_proc=gpu_inf_proc,
+        gpu_threads_i=gpu_threads_i,
+        gpu_mem_i=gpu_mem_i,
+        cpu_processes=cpu_processes,
+        cpu_threads=cfg["prod"]["cpu"]["threads_per_process"],
+        cpu_memory=cfg["prod"]["cpu"]["mem_per_process"],
+        agents_per_observer=cfg["prod"]["cpu"]["agents_per_observer"],
+    )
+    est_path = os.path.join(jobname, f"estimate.{jobname}.slurm")
+    with open(est_path, "w") as f_est:
+        f_est.write(est_header)
+    print("Done writing estimation script.")
+
+    # --- Auto-submit the appropriate script with feedback ---
+    if not prepare:
+        click.echo(f"Starting Job: {jobname}")
+        click.echo("Currently estimating Batch execution time:")
+        os.system(f"sbatch {est_path}")
+        os.system(f"sbatch {run_slurm_path}")
+    else:
+        click.echo(
+            f"Not running submission script as run with --prepare flag.\nCan be run manually with:\n\n    sbatch run.{jobname}.slurm\n\nCurrently estimating Batch execution time using {jobname}/estimate.{jobname}.slurm:"
+        )
+        os.system(f"sbatch {est_path}")
 
 
 if __name__ == "__main__":

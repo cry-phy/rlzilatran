@@ -11,14 +11,23 @@ nodes = 1
 time = 10:00:00
 
 [prod.gpu]
+training_processes = 1       # optional, defaults to gpus_per_node
+inference_processes = 1      # optional, defaults to gpus_per_node
+
+[prod.gpu.training]
 threads_per_gpu = 8
 mem_per_process = 4000
-hyperthreading = false
+
+[prod.gpu.inference]
+threads_per_gpu = 8
+mem_per_process = 4000
 
 [prod.cpu]
 threads_per_process = 1
+agents_per_observer = 1
 mem_per_process = 1000
 hyperthreading = false
 
 [dev]
 num_processes = 4
+time = 00:01:00
