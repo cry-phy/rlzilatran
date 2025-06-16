@@ -2,6 +2,9 @@ from typing import Iterator
 import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from cnn.queue import EpisodeItem, LeafItem, Queue, ReplayBuffer
+import logging
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 # non_blocking = True
@@ -37,6 +40,7 @@ class EpisodeDataset(IterableDataset):
         """Generate Iterator for frozen super batch."""
         super_batch_items = self.queue.retrieve_ready()
         self.replay_buffer.add(super_batch_items)
+        logger.info("Using %i recorded batches.", len(self.replay_buffer))
         yield from self.replay_buffer
 
 
@@ -51,9 +55,9 @@ def collate_leaf(
         data_list.append(item.data)
         tokens_list.append(torch.full((item.data.shape[0],), int(item.token)))
         source_list.append(torch.full((item.data.shape[0],), int(item.source)))
-    data = torch.cat(data_list, dim=0)
-    tokens = torch.cat(tokens_list, dim=0)
-    source = torch.cat(source_list, dim=0)
+    data = torch.concatenate(data_list, dim=0)
+    tokens = torch.concatenate(tokens_list, dim=0)
+    source = torch.concatenate(source_list, dim=0)
     return data, tokens, source
 
 
@@ -68,9 +72,9 @@ def collate_episode(
         data_list.append(item.data)
         moves_list.append(item.moves)
         values_list.append(item.value)
-    data = torch.cat(data_list, dim=0)
-    moves = torch.cat(moves_list, dim=0)
-    values = torch.cat(values_list, dim=0)
+    data = torch.concatenate(data_list, dim=0)
+    moves = torch.concatenate(moves_list, dim=0)
+    values = torch.concatenate(values_list, dim=0)
     return data, moves, values
 
 

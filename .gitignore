@@ -1,11 +1,18 @@
-!resources/**/*
-*poetry.lock*
-*__pycache__*
-htmlcov/
-temp/*
-.pytest_cache/
-.ruff_cache/
-.coverage
-.envrc
-.venv.toml
+# --- Ignore everything by default ---
+*
+
+# --- Except top-level files ---
+!/*
+
+# --- Explicitly include these directories ---
+!src/
+!resources/
+
+# --- Still ignore common junk everywhere ---
 *.ipynb
+.envrc
+poetry.lock
+poetry.toml
+.coverage
+.venv.toml
+

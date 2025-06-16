@@ -1,21 +1,10 @@
 from dynaconf import Dynaconf
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from agents import agent_class_dict
 
 
-class MPIConfig(BaseModel):
-    """MPI Config using Pydantic for validation and typing."""
-
-    TRAINING_WRANK: int = Field(0, ge=0)
-    INFERENCE_NRANK: int = Field(0, ge=0)
-    OBSERVER_ORANK: int = Field(0, ge=0)
-    MPI_SHUTDOWN_WAIT: float = Field(10.0, gt=0)
-    AGENTS_PER_OBSERVER: int = Field(4, gt=0)
-    PROCESSES_PER_NODE: int = Field(..., gt=0)
-
-
 class OBSConfig(BaseModel):
-    """Observer and Agents config using Pydantic."""
+    """Observer and Agents."""
 
     GUI: bool = False
     agent1: str
@@ -31,9 +20,8 @@ class CNNConfig(BaseModel):
 
 
 class Settings(Dynaconf):
-    """Dynaconf settings class using Pydantic models for data validation."""
+    """Dynaconf settings class."""
 
-    mpi: MPIConfig
     obs: OBSConfig
     cnn: CNNConfig
 

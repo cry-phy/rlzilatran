@@ -62,7 +62,7 @@ class Queue(Generic[Item]):
             return []
         ready_indices = torch.arange(len(self))[ready_mask]
         batch = [self._data[i] for i in ready_indices]
-        for i in ready_indices:
+        for i in ready_indices.__reversed__():
             del self._data[i]
         return batch
 
@@ -84,3 +84,7 @@ class ReplayBuffer(Generic[Item]):
     def __iter__(self) -> Iterator[Item]:
         """Get iterable of underlying Data."""
         return iter(self._data)
+
+    def __len__(self) -> int:
+        """Get length of buffer."""
+        return len(self._data)

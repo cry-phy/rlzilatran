@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from typing import Callable
+    from collections.abc import Callable
     from game import Game
 
 from agents import BaseAgent
@@ -19,7 +19,7 @@ class MinimaxAgent(BaseAgent):
     def __init__(self, game: Game) -> None:
         """Initialize Minimax agent."""
         super().__init__(game)
-        self._depth: int = 3
+        self._depth: int = 2
         self._weights: dict[str, float] = {
             "material": 0,
             "capture": 1,
@@ -156,16 +156,16 @@ class MinimaxAgent(BaseAgent):
         # allocate moves to specific ranks
         all_moves = torch.stack(move_list).T
         num_tasks = len(all_moves)
-        min_tasks = num_tasks // cast(int, self.mpi._osize)
-        remainder = num_tasks % cast(int, self.mpi._osize)
-        tasks_per_rank = torch.full((cast(int, self.mpi._osize),), min_tasks)
+        min_tasks = num_tasks // cast(int, self.mpi.osize)
+        remainder = num_tasks % cast(int, self.mpi.osize)
+        tasks_per_rank = torch.full((cast(int, self.mpi.osize),), min_tasks)
         tasks_per_rank[:remainder] += 1
         end_indices_per_rank = torch.cumsum(tasks_per_rank, dim=0)
         start_indices_per_rank = end_indices_per_rank - tasks_per_rank
 
         # Generate which moves are evaluated on this rank
-        start_index = start_indices_per_rank[self.mpi._orank]
-        end_index = end_indices_per_rank[self.mpi._orank]
+        start_index = start_indices_per_rank[self.mpi.orank]
+        end_index = end_indices_per_rank[self.mpi.orank]
         task_moves = all_moves[start_index:end_index]
         logger.debug("Assigned moves %i:%i.", start_index, end_index)
         return task_moves

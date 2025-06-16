@@ -1,0 +1,33 @@
+[general]
+hostname = "archlinux"
+mode = "prod"
+queue = "std"
+conda_env = "rlzilatran"
+cpus_per_node = 64
+gpus_per_node = 2
+
+[prod]
+nodes = 5
+time = 01:00:00
+
+[prod.gpu]
+training_processes = 1       # optional, defaults to gpus_per_node
+inference_processes = 9      # optional, defaults to gpus_per_node
+
+[prod.gpu.training]
+threads_per_gpu = 4
+mem_per_process = 4000
+
+[prod.gpu.inference]
+threads_per_gpu = 4
+mem_per_process = 4000
+
+[prod.cpu]
+threads_per_process = 1
+agents_per_observer = 1
+mem_per_process = 1000
+hyperthreading = false
+
+[dev]
+num_processes = 4
+time = 00:01:00

@@ -28,14 +28,18 @@ for ARG in "$@"; do
             ;;
     esac
 done
+echo "!!!DEPRECATED!!! Use submit.py instead!"
 echo "Preparing slurm script for RLZilatran:"
 
+# Generate correct Conda environment
 # Standard values for the parameters
 STD_QUEUE_NAME="std"
 STD_NUM_PROCESSES="1"
 STD_THREADS_PER_PROCESS="1"
 STD_EST_CALC_TIME="1"
 STD_MEM_in_MB="1000"
+STD_NUM_GPUS="2"
+STD_CONDA_ENV="rlzilatran"
 
 # Set Standard values
 QUEUE_NAME="$STD_QUEUE_NAME"
@@ -43,6 +47,10 @@ NUM_PROCESSES="$STD_NUM_PROCESSES"
 THREADS_PER_PROCESS="$STD_THREADS_PER_PROCESS"
 EST_CALC_TIME="$STD_EST_CALC_TIME"
 MEM_in_MB="$STD_MEM_in_MB"
+NUM_GPUS="$STD_NUM_GPUS"
+CONDA_ENV="$STD_CONDA_ENV"
+PREPARE=false
+SBATCH_TEST_ONLY=""
 
 # Check through flags
 if [ -z "$1" ]; then echo "The parameter jobname (at position 1) must be specified. Call the function like
@@ -77,6 +85,18 @@ for ARG in "$@"; do
         MEM_in_MB="${1#*=}"
         shift
         ;;
+      -g=*|--gpus=*)
+        NUM_GPUS="${1#*=}"
+        shift
+        ;;
+      --conda=*)
+        CONDA_ENV="${1#*=}"
+        shift;;
+      --prepare)
+        PREPARE=true
+        SBATCH_TEST_ONLY="#SBATCH --test-only"
+        shift
+        ;;
       *)
         echo "Unknown option: $ARG"
         exit 1
@@ -90,6 +110,7 @@ if [ "$NUM_PROCESSES" = "$STD_NUM_PROCESSES" ]; then echo "The number of process
 if [ "$THREADS_PER_PROCESS" = "$STD_THREADS_PER_PROCESS" ]; then echo "The number of threads per process defaults to $THREADS_PER_PROCESS."; fi
 if [ "$EST_CALC_TIME" = "$STD_EST_CALC_TIME" ]; then echo "The estimated calculation time in hours defaults to $EST_CALC_TIME."; fi
 if [ "$MEM_in_MB" = "$STD_MEM_in_MB" ]; then echo "The memory per cpu defaults too $MEM_in_MB."; fi
+if [ "$CONDA_ENV" = "$STD_CONDA_ENV" ]; then echo "Using default conda environment $CONDA_ENV."; fi
 
 
 # Check to use CPUs per node
@@ -118,41 +139,8 @@ NUM_NODES=$(( (TOTAL_CPUS + CPUS_PER_NODE - 1) / CPUS_PER_NODE ))
 # Provide user Feedback
 echo "Reserving $NUM_NODES nodes for $NUM_PROCESSES tasks with $THREADS_PER_PROCESS threads per task"
 
-# Generate correct Conda environment
-CONDA_BASE_PATH="/home/christof/miniconda3/"
-CONDA_ENV_NAME="rlzilatran"
-
 # Prepare Working directory and provide Slurm script
 mkdir -p $JOBNAME
-echo "#!/bin/bash
-
-#SBATCH --job-name=ga.$JOBNAME
-#SBATCH --time=$EST_CALC_TIME:0:0
-
-
-#SBATCH --ntasks=$NUM_PROCESSES
-#SBATCH --nodes=$NUM_NODES
-#SBATCH --cpus-per-task=$THREADS_PER_PROCESS
-#SBATCH --mem-per-cpu=${MEM_in_MB}M
-
-#SBATCH --threads-per-core=2
-#SBATCH --hint=multithread
-
-# disables core dump file generation
-ulimit -c 0
-
-source ${CONDA_BASE_PATH}/etc/profile.d/conda.sh
-conda activate "${CONDA_ENV_NAME}"
-
-echo "Using Python:"
-which python
-
-mkdir out
-TMPDIR=./out
-
-mpiexec --hostfile <(scontrol show hostnames $SLURM_JOB_NODELIST) --np $NUM_PROCESSES --map-by ppr:$THREADS_PER_PROCESS:core -- python ../src/main.py $JOBNAME >> $JOBNAME.log
-conda deactivate
-" > $JOBNAME/run.$JOBNAME.slurm
 
 # Copy config from:
 #  Job directory if it already exists
@@ -163,25 +151,77 @@ if [ -f ./$JOBNAME/config.toml ]; then
 else
   if [ -f ./config.toml ]; then
     echo "Using config from current directory"
-    cp --update=none config.toml $JOBNAME
+    cp config.toml $JOBNAME
   else
-    echo "ERROR: NO config found!"
+    echo "ERROR: No config found!"
     exit
   fi
 fi
+
 if [ -f ./$JOBNAME/constants.json ]; then
   echo "Constants is not copied since already exists"
 else
   if [ -f ./constants.json ]; then
     echo "Using config from current directory"
-    cp --update=none constants.json $JOBNAME
+    cp constants.json $JOBNAME
   else
     echo "ERROR: NO constants.json found!"
     exit
   fi
 fi
-echo "Stating Job: $JOBNAME"
 
-cd $JOBNAME
-sbatch run.$JOBNAME.slurm
-cd ..
+write_sbatch_header() {
+  # The output file is the first argument passed to the function ($1)
+  local output_file="$1"
+  cat << EOF > "$output_file"
+#!/bin/bash
+$SBATCH_TEST_ONLY
+#SBATCH --job-name=rlz.$JOBNAME
+#SBATCH --time=$EST_CALC_TIME:0:1
+#SBATCH --nodes=$NUM_NODES
+#SBATCH --ntasks=$NUM_PROCESSES
+#SBATCH --cpus-per-task=$THREADS_PER_PROCESS
+export SRUN_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-1}
+#SBATCH --gpus=$NUM_GPUS
+#SBATCH --mem-per-cpu=${MEM_in_MB}M
+#SBATCH --output=$JOBNAME/$JOBNAME.log
+#SBATCH --hint=nomultithread
+EOF
+}
+
+# --- Create the main run script ---
+echo "Creating run script..."
+write_sbatch_header "$JOBNAME/run.$JOBNAME.slurm"
+cat << EOF >> "$JOBNAME/run.$JOBNAME.slurm"
+
+# -- Conda env setup --
+module load Anaconda3/2023.10/miniconda-base-2023.10
+eval "\$(\$UIBK_CONDA_DIR/bin/conda shell.bash hook)"
+conda activate "$CONDA_ENV"
+echo "Using Python: \$(which python)"
+
+# -- Main execution part --
+srun --mpi=pmi2 --export=ALL python ../src/main.py "$JOBNAME"
+conda deactivate
+EOF
+
+
+# --- Create the estimation script ---
+echo "Creating estimation script..."
+write_sbatch_header "$JOBNAME/estimate.$JOBNAME.slurm"
+
+# --- Decide what to run ---
+if [ "$PREPARE" = false ]; then
+  echo "Starting Job: $JOBNAME"
+  cd "$JOBNAME"
+  sbatch "run.$JOBNAME.slurm"
+  cd ..
+else
+  echo "Not running submission script as run with --prepare flag."
+  echo "Can be run manually with:"
+  echo "    sbatch run.$JOBNAME.slurm"
+  echo "Currently estimating Batch execution time using $JOBNAME/estimate.$JOBNAME.slurm:"
+  cd "$JOBNAME"
+  sbatch "estimate.$JOBNAME.slurm"
+  cd ..
+fi

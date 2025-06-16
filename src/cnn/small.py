@@ -1,4 +1,5 @@
 from torch import nn
+import torch
 
 from cnn.base_cnn import CNN
 
@@ -11,9 +12,10 @@ class SmallCNN(CNN):
         num_filters: int,
         state_shape: tuple[int, ...],
         move_shape: tuple[int, ...],
+        device: torch.device,
     ) -> None:
         """Generate CNN."""
-        super().__init__()
+        super().__init__(device)
 
         self.num_filters = num_filters
         self.state_shape = state_shape
@@ -38,7 +40,6 @@ class SmallCNN(CNN):
             nn.Conv2d(num_filters, move_shape[2], kernel_size=1),
             nn.BatchNorm2d(move_shape[2]),
             nn.ReLU(inplace=True),
-            nn.Flatten(),
         )
 
     def forward(self, state):
@@ -46,4 +47,6 @@ class SmallCNN(CNN):
         intermediate = self.trunk(state)
         value = self.value_head(intermediate)
         moves = self.policy_head(intermediate)
-        return value, moves
+        value = value.squeeze(1)
+        moves = moves.permute(0, 2, 3, 1)
+        return moves, value

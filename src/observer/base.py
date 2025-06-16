@@ -78,9 +78,9 @@ class BaseObserver:
         agent2.player = not agent1.player
         self.agents = (agent1, agent2)
 
-    def send_epsiode(self) -> None:
+    def send_episode(self) -> None:
         """Send batch of move data to Training."""
-        states = torch.stack(self._state_data)
+        states = torch.stack(self._state_data, dim=0)
         values = torch.Tensor(self._value_data)
-        moves = torch.stack(self._move_data)
+        moves = torch.stack(self._move_data, dim=0)
         self.mpi.send_episode(states, values, moves)
