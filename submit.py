@@ -8,7 +8,7 @@ from jinja2 import Template
 
 def check_hostname(cfg):
     """Enforce that user checks the Hostname ie Slurm config before submitting."""
-    expected = cfg.get("system", {}).get("hostname")
+    expected = cfg.get("general", {}).get("hostname")
     actual = socket.gethostname()
 
     if expected is None:
@@ -53,6 +53,8 @@ def main(
 ):
     """Generate slurm run config with separate GPU allocations for training and inference."""
     cfg = toml.load(open("slurm.toml"))
+
+    check_hostname(cfg)
 
     # Override sections
     overrides = {
@@ -115,16 +117,14 @@ def main(
     if mode == "prod":
         max_cpus = cfg["general"]["cpus_per_node"]
     elif mode == "dev":
-        dev_total = cfg["dev"].get("num_processes", cfg["general"]["cpus_per_node"])
+        max_cpus = cfg["dev"].get("num_processes", cfg["general"]["cpus_per_node"])
     else:
         raise ValueError(f"{mode} is not a valid general.mode")
 
-    cpu_avail_node0 =  - (
+    cpu_avail_node0 = -(
         gpu_train_proc * gpu_threads_t + (gpus_per_node - 1) * gpu_threads_i
     )
-    cpu_avail_noden = max_cpus - (
-        gpus_per_node * gpu_threads_i
-    )
+    cpu_avail_noden = max_cpus - (gpus_per_node * gpu_threads_i)
     cpu_processes_node0 = cpu_avail_node0 // threads_per_cpu
     cpu_processes_noden = cpu_avail_noden // threads_per_cpu
     cfg["prod"]["cpu"]["cpu_processes_node0"] = max(1, cpu_processes_node0)
@@ -140,7 +140,7 @@ def main(
             shutil.copy(fname, target)
 
     # Render sbatch header
-    tmpl = Template(open("sbatch_header.j2").read())
+    tmpl = Template(open("sbatch_template.j2").read())
     header = tmpl.render(
         jobname_prefix="rlz",
         jobname=jobname,
