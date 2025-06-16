@@ -7,6 +7,8 @@
 # --- Explicitly include these directories ---
 !src/
 !resources/
+!benchmarks/
+!tests/
 
 # --- Still ignore common junk everywhere ---
 *.ipynb
@@ -15,4 +17,3 @@ poetry.lock
 poetry.toml
 .coverage
 .venv.toml
-
