@@ -104,23 +104,31 @@ def main(
     gpu_threads_i = cfg["prod"]["gpu"]["inference"]["threads_per_gpu"]
     gpu_mem_t = cfg["prod"]["gpu"]["training"]["mem_per_process"]
     gpu_mem_i = cfg["prod"]["gpu"]["inference"]["mem_per_process"]
+    threads_per_cpu = cfg["prod"]["cpu"]["threads_per_process"]
+    gpus_per_node = cfg["general"]["gpus_per_node"]
 
     if mode == "dev":
         cfg["prod"]["time"]
 
     # CPU processes
+
     if mode == "prod":
-        cpu_avail = cfg["general"]["cpus_per_node"] - (
-            gpu_train_proc * gpu_threads_t + gpu_inf_proc * gpu_threads_i
-        )
-        threads_per_cpu = cfg["prod"]["cpu"]["threads_per_process"]
-        cpu_processes = cpu_avail // threads_per_cpu
+        max_cpus = cfg["general"]["cpus_per_node"]
     elif mode == "dev":
-        dev_total = cfg["prod"].get("num_processes", 4)
-        cpu_processes = max(1, dev_total - gpu_train_proc - gpu_inf_proc)
+        dev_total = cfg["dev"].get("num_processes", cfg["general"]["cpus_per_node"])
     else:
         raise ValueError(f"{mode} is not a valid general.mode")
-    cfg["prod"]["cpu"]["cpu_processes"] = cpu_processes
+
+    cpu_avail_node0 =  - (
+        gpu_train_proc * gpu_threads_t + (gpus_per_node - 1) * gpu_threads_i
+    )
+    cpu_avail_noden = max_cpus - (
+        gpus_per_node * gpu_threads_i
+    )
+    cpu_processes_node0 = cpu_avail_node0 // threads_per_cpu
+    cpu_processes_noden = cpu_avail_noden // threads_per_cpu
+    cfg["prod"]["cpu"]["cpu_processes_node0"] = max(1, cpu_processes_node0)
+    cfg["prod"]["cpu"]["cpu_processes_noden"] = max(1, cpu_processes_noden)
 
     # Prepare output directory
     print(f"Preparing Job directory: {jobname}")
@@ -137,6 +145,7 @@ def main(
         jobname_prefix="rlz",
         jobname=jobname,
         test_only=False,
+        gpus_per_node=cfg["general"]["gpus_per_node"],
         conda_env=cfg["general"]["conda_env"],
         time=cfg["prod"]["time"],
         nodes=cfg["prod"]["nodes"],
@@ -147,7 +156,8 @@ def main(
         gpu_inf_proc=gpu_inf_proc,
         gpu_threads_i=gpu_threads_i,
         gpu_mem_i=gpu_mem_i,
-        cpu_processes=cpu_processes,
+        cpu_processes_node0=cfg["prod"]["cpu"]["cpu_processes_node0"],
+        cpu_processes_noden=cfg["prod"]["cpu"]["cpu_processes_noden"],
         cpu_threads=cfg["prod"]["cpu"]["threads_per_process"],
         cpu_memory=cfg["prod"]["cpu"]["mem_per_process"],
         agents_per_observer=cfg["prod"]["cpu"]["agents_per_observer"],
@@ -161,6 +171,7 @@ def main(
         jobname_prefix="rlz",
         jobname=jobname,
         test_only=True,
+        gpus_per_node=cfg["general"]["gpus_per_node"],
         conda_env=cfg["general"]["conda_env"],
         time=cfg["prod"]["time"],
         nodes=cfg["prod"]["nodes"],
@@ -171,7 +182,8 @@ def main(
         gpu_inf_proc=gpu_inf_proc,
         gpu_threads_i=gpu_threads_i,
         gpu_mem_i=gpu_mem_i,
-        cpu_processes=cpu_processes,
+        cpu_processes_node0=cfg["prod"]["cpu"]["cpu_processes_node0"],
+        cpu_processes_noden=cfg["prod"]["cpu"]["cpu_processes_noden"],
         cpu_threads=cfg["prod"]["cpu"]["threads_per_process"],
         cpu_memory=cfg["prod"]["cpu"]["mem_per_process"],
         agents_per_observer=cfg["prod"]["cpu"]["agents_per_observer"],
