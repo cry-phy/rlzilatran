@@ -1,14 +1,15 @@
-# --- Ignore everything by default ---
-*
-
-# --- Except top-level files ---
-!/*
-
 # --- Explicitly include these directories ---
 !src/
 !resources/
 !benchmarks/
 !tests/
+
+*job*
+temp/
+*__pycache__*
+.tach
+.ruff_cache
+.pytest_cache
 
 # --- Still ignore common junk everywhere ---
 *.ipynb
