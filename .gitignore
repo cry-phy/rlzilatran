@@ -5,7 +5,7 @@
 !tests/
 
 *job*
-temp/
+temp
 *__pycache__*
 .tach
 .ruff_cache

@@ -40,6 +40,14 @@ class Game:
         return cls(state, last_moves)
 
     @classmethod
+    def empty_game(cls) -> Game:
+        """Generate Initial game state."""
+        state = State.empty()
+        last_moves = deque(maxlen=cls.HIST_LEN)
+        [last_moves.appendleft(state.state) for _ in range(cls.HIST_LEN)]
+        return cls(state, last_moves)
+
+    @classmethod
     def from_game(cls, game: Game) -> Game:
         """Copy from RecordGame."""
         return cls(game.state.copy(), game.last_moves)
