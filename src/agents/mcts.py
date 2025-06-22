@@ -4,9 +4,9 @@ from typing import cast
 
 import torch
 
-from src.agents.base import BaseAgent
-from src.game.game import Game
-from src.game.utils.constants import Constants
+from agents import BaseAgent
+from game import Game
+from game.utils import Constants
 
 
 class Node:
@@ -176,11 +176,9 @@ class Leaf(Node):
 class Root(Leaf):
     """Root node."""
 
-    def __init__(
-        self, game: Game, child_index: int | torch.Tensor, puct_factor: float
-    ) -> None:
+    def __init__(self, game: Game, puct_factor: float) -> None:
         """Generate Root Node."""
-        super().__init__(game, child_index, self, puct_factor)
+        super().__init__(game, torch.empty(), self, puct_factor)
 
     def backpropagate(
         self,
@@ -194,7 +192,7 @@ class Root(Leaf):
     @classmethod
     def from_leaf(cls, leaf: Leaf) -> Root:
         """Dynamic Cast from Leaf to root."""
-        instance = cls(leaf._game, -1, leaf.puct_factor)
+        instance = cls(leaf._game, leaf.puct_factor)
         instance._visit_count = leaf.visit_count
         instance.parent = instance
         instance.children = leaf.children
@@ -215,7 +213,7 @@ class Root(Leaf):
         )
         return move_tensor
 
-    def extract_values(self) -> float:
+    def extract_value(self) -> float:
         """Extract value from node."""
         return self._mean_value
 
@@ -234,7 +232,7 @@ class Tree:
     def __init__(self, game: Game, maxlen: int, puct_factor: float) -> None:
         """Initialize Tree, new Node list."""
         self.to_evaluate: deque[Node] = deque(maxlen=maxlen)
-        self.root: Root = Root(game.copy(), -1, puct_factor)
+        self.root: Root = Root(game.copy(), puct_factor)
         self.to_evaluate.append(self.root)
 
     def recurse_to_str(self, node: Node, lines: list[str]) -> list[str]:
@@ -263,6 +261,14 @@ class Tree:
         """Make specific move in tree and move Root there."""
         ...
 
+    def get_value(self) -> float:
+        """Retrieve Value from root node."""
+        return self.root.extract_value()
+
+    def get_move_tensor(self) -> torch.Tensor:
+        """Retrieve move tensor from Root node."""
+        return self.root.extract_policy()
+
 
 class MCTSAgent(BaseAgent):
     """Monte Carlo Tree Search Agent."""
@@ -270,7 +276,7 @@ class MCTSAgent(BaseAgent):
     def __init__(self, game: Game) -> None:
         """Initialize MCTS Agent."""
         super().__init__(game)
-        self.tree = Tree(self._game, Constants.BATCH_SIZE)
+        self.tree = Tree(self._game, Constants.BATCH_SIZE, 1.5)
 
     def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
         """Make specific move and propagate to tree."""
@@ -285,11 +291,8 @@ class MCTSAgent(BaseAgent):
 
     def generate_move_tensor(self) -> None:
         """Generate move tensor and value."""
-        return self.tree.get_move_tensor()
-
-    def get_state_value(self) -> float:
-        """Get evaluation of current State."""
-        return self.tree.get_value()
+        self._move_tensor = self.tree.get_move_tensor()
+        self._value = self.tree.get_value()
 
 
 # MCTS control flow

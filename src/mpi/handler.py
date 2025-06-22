@@ -1,4 +1,6 @@
 from __future__ import annotations
+import os
+
 
 from game.utils.constants import Constants
 from cnn import CNN
@@ -164,7 +166,7 @@ class MPIHandler:
             )
 
         world_duties = instance.wcomm.allgather((instance.wrank, process))
-        training_ranks = [r for r, p in sorted(world_duties) if p == "training"]
+        training_ranks = [r for r, p in world_duties if p == "training"]
 
         if not training_ranks:
             raise RuntimeError("No training ranks found — cannot assign.")
@@ -172,6 +174,12 @@ class MPIHandler:
         num_training = len(training_ranks)
         bp_rank = instance.wsize % num_training
         block_size = instance.wsize // num_training
+
+        inference_ranks = [r for r, p in world_duties if p == "inference"]
+        worker_ranks = [r for r, p in world_duties if p == "worker"]
+        if not inference_ranks:
+            raise RuntimeError("No inference ranks found — cannot assign workers.")
+        average_workers = len(worker_ranks) // len(inference_ranks)
 
         if instance.wrank < (block_size + 1) * bp_rank:
             block_index = instance.wrank // (block_size + 1)
@@ -182,17 +190,63 @@ class MPIHandler:
 
         non_training_comm = instance._split_training()
         if non_training_comm != MPI.COMM_NULL:
-            instance.ncomm = non_training_comm.Split_type(MPI.COMM_TYPE_SHARED)
+            shared_comms = non_training_comm.Split_type(MPI.COMM_TYPE_SHARED)
+            rank = non_training_comm.Get_rank()
+            shared_duties = shared_comms.allgather((rank, instance.process))
+            shared_inference = [r for r, p in shared_duties if p == "inference"]
+
+            abandoned = not shared_inference
+            node_id = int(os.environ["SLURM_NODEID"])
+            ranks_status = non_training_comm.allgather((rank, node_id, abandoned))
+            abandoned = [r for r, _, a in ranks_status if a]
+            non_abandoned = [(r, nid) for r, nid, a in ranks_status if not a]
+
+            shared_workers = [r for r, p in shared_duties if p == "worker"]
+            num_shared_workers = len(shared_workers)
+            if not abandoned:
+                needed_workers = max(average_workers - num_shared_workers, 0)
+            else:
+                needed_workers = None
+            needed_list = non_training_comm.allgather((node_id, needed_workers))
+            all_node_ids = [
+                node_id
+                for node_id, needed_workers in needed_list
+                if needed_workers is not None
+            ]
+            node_ids = list(set(all_node_ids))
+            node_to_needed = {}
+            for node_id, needed in needed_list:
+                # If node_id not recorded yet, save it
+                if node_id not in node_to_needed and needed != 0:
+                    node_to_needed[node_id] = needed
+
+            assignments = {node_id: [] for node_id in node_ids}
+            while abandoned:
+                # highest need first
+                node_id = max(
+                    (nid for nid in node_to_needed if node_to_needed[nid] > 0),
+                    key=lambda nid: node_to_needed[nid],
+                    default=None,
+                )
+                abandoned_rank = abandoned.pop()
+                assignments[node_id].append(abandoned_rank)
+                node_to_needed[node_id] -= 1
+
+            for rank, node_id in non_abandoned:
+                assignments[node_id].append(rank)
+
+            rank_to_node = {}
+            for node_id, ranks in assignments.items():
+                for r in ranks:
+                    rank_to_node[r] = node_id
+
+            ncolor = rank_to_node.get(rank, MPI.UNDEFINED)
+            instance.ncomm = non_training_comm.Split(ncolor, rank)
             instance.nrank = instance.ncomm.Get_rank()
             instance.nsize = instance.ncomm.Get_size()
 
             node_duties = instance.ncomm.allgather((instance.nrank, process))
-            inference_ranks = [r for r, p in sorted(node_duties) if p == "inference"]
-
-            if not inference_ranks:
-                raise RuntimeError(
-                    "No inference ranks found on this node — cannot assign."
-                )
+            inference_ranks = [r for r, p in node_duties if p == "inference"]
 
             num_inference = len(inference_ranks)
             bp_rank = instance.nsize % num_inference
