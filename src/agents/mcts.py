@@ -1,5 +1,6 @@
 from __future__ import annotations
 from collections import deque
+from time import monotonic
 from typing import cast
 
 import torch
@@ -22,6 +23,9 @@ class Node:
         self.parent: Node = self
         self._parent_child_index: torch.Tensor = child_index
         self.children: list[Node | None] = []
+        self.selected: bool = (
+            False  # Indicates if the node is part of the selected path
+        )
 
     @property
     def visit_count(self) -> int:
@@ -165,12 +169,20 @@ class Leaf(Node):
         node = self.parent.backpropagate(self.parent_child_index)
         return node
 
-    def to_root(self) -> Root:
-        """Convert this leaf node to a root node.
-
-        Disconnects the other parts of the tree to free memory while allowing for reuse of the generated leaf nodes.
-        """
-        return Root.from_leaf(self)
+    def child_from_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> Node:
+        """Get Child from move identifier."""
+        # TODO to be tested
+        _, d1, d2 = self._move_tensor.shape
+        if flag != 0:
+            index = 33
+        else:
+            index = x2 + y2 * d1
+        child_index = x1 * (d1 * d2) + y1 * d2 + index
+        potential_child = self.children[child_index]
+        if potential_child:
+            return potential_child
+        else:
+            return self._new_node(cast(torch.Tensor, child_index))
 
 
 class Root(Leaf):
@@ -178,7 +190,7 @@ class Root(Leaf):
 
     def __init__(self, game: Game, puct_factor: float) -> None:
         """Generate Root Node."""
-        super().__init__(game, torch.empty(), self, puct_factor)
+        super().__init__(game, torch.empty(0), self, puct_factor)
 
     def backpropagate(
         self,
@@ -190,16 +202,27 @@ class Root(Leaf):
         return self
 
     @classmethod
-    def from_leaf(cls, leaf: Leaf) -> Root:
-        """Dynamic Cast from Leaf to root."""
-        instance = cls(leaf._game, leaf.puct_factor)
-        instance._visit_count = leaf.visit_count
+    def from_node(cls, node: Node) -> Root:
+        """Promote an existing Node (e.g., Leaf) to Root."""
+        instance = cls(node._game.copy(), getattr(node, "puct_factor", 1.0))
+        instance._visit_count = node.visit_count
         instance.parent = instance
-        instance.children = leaf.children
-        instance._is_terminal = leaf._is_terminal
-        instance._mean_value = leaf.mean_value
-        instance._game = leaf._game.copy()
-        instance._score = leaf._score
+        instance.children = node.children
+        instance._mean_value = node.mean_value
+        instance._game = node._game.copy()
+        instance._score = node._score
+        instance._move_tensor = node._move_tensor
+        instance._parent_child_index = node.parent_child_index
+        instance.selected = node.selected
+
+        # Handle optional Leaf fields if they exist
+        if isinstance(node, Leaf):
+            instance._is_terminal = node._is_terminal
+            instance._valid_mask = node._valid_mask
+            instance._child_values = node._child_values
+            instance._child_visit_counts = node._child_visit_counts
+            instance._child_puct_factors = node._child_puct_factors
+            instance.puct_factor = node.puct_factor
         return instance
 
     def extract_policy(self) -> torch.Tensor:
@@ -235,8 +258,9 @@ class Tree:
         self.root: Root = Root(game.copy(), puct_factor)
         self.to_evaluate.append(self.root)
 
+    # Dot file generation methods
     def recurse_to_str(self, node: Node, lines: list[str]) -> list[str]:
-        """Recurse through tree and add dot file sytax to lines."""
+        """Recurse through tree and add dot file syntax to lines."""
         nid = f"n{id(node)}"
         lines.append(
             f'  {nid} [label="{node.mean_value:.2f}\\nvisits={node.visit_count}"];'
@@ -248,7 +272,7 @@ class Tree:
                 lines.append(f"  {nid} -> {cid};")
         return lines
 
-    def to_dot(self, path: str) -> None:
+    def full_dot(self, path: str) -> None:
         """Generate and write a dotfile containing the Tree."""
         lines = ["digraph Tree {", "  node [shape=circle];"]
         lines = self.recurse_to_str(self.root, lines)
@@ -257,9 +281,45 @@ class Tree:
         with open(path, "w+") as file:
             file.write(string)
 
+    def optimal_path_dot(self, path: str) -> None:
+        """Export all direct children at depth 1 along the optimal path."""
+        lines = ["digraph OptimalPathChildren {", "  node [shape=circle];"]
+
+        def add_children_to_lines(node: Node, lines: list[str]) -> None:
+            """Add all direct children of a node to the dot file syntax."""
+            nid = f"n{id(node)}"  # Use depth as the identifier for the node
+            for child in node.children:
+                if child is not None:
+                    cid = f"n{id(child)}"  # Increment depth for child nodes
+                    lines.append(
+                        f'  {cid} [label="{child.mean_value:.2f}\\nvisits={child.visit_count}"];'
+                    )
+                    lines.append(f"  {nid} -> {cid};")
+
+        current_node = self.root
+        lines.append(
+            f'  n{id(current_node)} [label="{current_node.mean_value:.2f}\\nvisits={current_node.visit_count}"];'
+        )
+        while current_node.children:
+            add_children_to_lines(current_node, lines)
+            optimal_child = max(
+                (child for child in current_node.children if child is not None),
+                key=lambda child: child.mean_value,
+                default=None,
+            )
+            if optimal_child is None:
+                break
+            current_node = optimal_child
+
+        lines.append("}")
+        string = "\n".join(lines)
+        with open(path, "w+") as file:
+            file.write(string)
+
     def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
         """Make specific move in tree and move Root there."""
-        ...
+        root_candidate = self.root.child_from_move(x1, y1, x2, y2, flag)
+        self.root = Root.from_node(root_candidate)
 
     def get_value(self) -> float:
         """Retrieve Value from root node."""
@@ -277,6 +337,7 @@ class MCTSAgent(BaseAgent):
         """Initialize MCTS Agent."""
         super().__init__(game)
         self.tree = Tree(self._game, Constants.BATCH_SIZE, 1.5)
+        self.search_time = 10000
 
     def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
         """Make specific move and propagate to tree."""
@@ -285,12 +346,43 @@ class MCTSAgent(BaseAgent):
 
     def generate_move(
         self, move_tensor: torch.Tensor
-    ) -> tuple[int, int, int, int, int]:
+    ) -> tuple[
+        int | torch.Tensor,
+        int | torch.Tensor,
+        int | torch.Tensor,
+        int | torch.Tensor,
+        int | torch.Tensor,
+    ]:
         """Generate a move for the current game."""
-        raise NotImplementedError
+        x1, y1, index = torch.argmax(move_tensor)
+        x2, y2, flag = self._game.move_from_index(index)
+        return x1, y1, x2, y2, flag
+
+    def _gather_new(self) -> tuple[int, list[Node]]:
+        """Perform rollouts and gathe the resulting unevaluated nodes."""
+        ...
+
+    def _collate_inputs(self, nodes: list[Node]) -> torch.Tensor:
+        """Generate state tensor minibatch for evaluation send."""
+        ...
+
+    def _apply_outputs(
+        self,
+        nodes: list[Node],
+        values: torch.Tensor,
+        move_tensors: torch.Tensor,
+    ) -> None:
+        """Apply the to the nodes."""
+        ...
 
     def generate_move_tensor(self) -> None:
         """Generate move tensor and value."""
+        stop_time = monotonic() + self.search_time
+        search_ongoing = True
+        while search_ongoing:
+            if monotonic() < stop_time:
+                ...  # rollouts
+
         self._move_tensor = self.tree.get_move_tensor()
         self._value = self.tree.get_value()
 
