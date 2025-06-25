@@ -13,7 +13,6 @@ class CNN(nn.Module):
     def __init__(self, device: torch.device) -> None:
         """!!!Do not Use directly!!! Use CNN.create() instead."""
         super().__init__()
-        print("cnn", device)
         self.device = device
 
     @classmethod

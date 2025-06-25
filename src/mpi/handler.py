@@ -241,23 +241,38 @@ class MPIHandler:
                     rank_to_node[r] = node_id
 
             ncolor = rank_to_node.get(rank, MPI.UNDEFINED)
-            instance.ncomm = non_training_comm.Split(ncolor, rank)
+            full_node_comm = non_training_comm.Split(ncolor, rank)
+            full_node_rank = full_node_comm.Get_rank()
+            full_node_size = full_node_comm.Get_size()
+
+            node_duties = full_node_comm.allgather((full_node_rank, process))
+            inference_ranks = [r for r, p in node_duties if p == "inference"]
+
+            if instance.process == "inference":
+                block_index = inference_ranks.index(full_node_rank)
+            else:
+                num_inference = len(inference_ranks)
+                bp_rank = full_node_size % num_inference
+                block_size = full_node_size // num_inference
+                if full_node_rank < (block_size + 1) * bp_rank:
+                    block_index = full_node_rank // (block_size + 1)
+                else:
+                    block_index = (full_node_rank - bp_rank) // block_size
+            full_node_color = block_index
+            instance.ncomm = full_node_comm.Split(full_node_color, full_node_color)
             instance.nrank = instance.ncomm.Get_rank()
             instance.nsize = instance.ncomm.Get_size()
 
-            node_duties = instance.ncomm.allgather((instance.nrank, process))
-            inference_ranks = [r for r, p in node_duties if p == "inference"]
-
-            num_inference = len(inference_ranks)
-            bp_rank = instance.nsize % num_inference
-            block_size = instance.nsize // num_inference
-
-            if instance.nrank < (block_size + 1) * bp_rank:
-                block_index = instance.nrank // (block_size + 1)
-            else:
-                block_index = (instance.nrank - bp_rank) // block_size
-
-            instance.INFERENCE_NRANK = inference_ranks[block_index]
+            ncomm_duties = instance.ncomm.allgather((instance.nrank, process))
+            inference_nranks = [r for r, p in ncomm_duties if p == "inference"]
+            if not inference_nranks:
+                raise RuntimeError("No inference ranks found — cannot assign workers.")
+            if len(inference_nranks) > 1:
+                logger.warning(
+                    "CArefull there might be the wrong number of inference processes in ncomm: Is: %i should be 1",
+                    len(inference_nranks),
+                )
+            instance.INFERENCE_NRANK = inference_nranks[0]
 
             color = MPI.UNDEFINED if instance.is_inference() else 0
             non_inference_comm = instance.ncomm.Split(color, instance.nrank)
@@ -485,7 +500,6 @@ class MPIHandler:
 
     def get_device(self) -> torch.device:
         """Return the current device."""
-        print("run", self.device)
         if self.device is None:
             raise ValueError("Cuda Device not set. Exiting.")
         return self.device
@@ -707,9 +721,9 @@ class MPIHandler:
         message["move_tensors"] = np_move_tensors
         self.ncomm.Isend([message, MPI.BYTE], ntarget, int(Tag.VALUE_BATCH))
 
-    def probe_value_batch(self, nsource: int) -> bool:
-        """Check if a value batch."""
-        return self.ncomm.Iprobe(nsource, int(Tag.VALUE_BATCH))
+    def probe_value_batch(self) -> bool:
+        """Check if a value batch exist."""
+        return self.ncomm.Iprobe(self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
 
     def recv_value_batch(self) -> tuple[int, torch.Tensor, torch.Tensor]:
         """Recieve Value and move tensor batch from Agent on nrank."""

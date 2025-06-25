@@ -338,6 +338,7 @@ class MCTSAgent(BaseAgent):
         super().__init__(game)
         self.tree = Tree(self._game, Constants.BATCH_SIZE, 1.5)
         self.search_time = 10000
+        self.open_tasks = {}
 
     def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
         """Make specific move and propagate to tree."""
@@ -358,8 +359,8 @@ class MCTSAgent(BaseAgent):
         x2, y2, flag = self._game.move_from_index(index)
         return x1, y1, x2, y2, flag
 
-    def _gather_new(self) -> tuple[int, list[Node]]:
-        """Perform rollouts and gathe the resulting unevaluated nodes."""
+    def _gather_new(self, num: int) -> list[Node]:
+        """Perform rollouts and gather the resulting unevaluated nodes."""
         ...
 
     def _collate_inputs(self, nodes: list[Node]) -> torch.Tensor:
@@ -381,8 +382,14 @@ class MCTSAgent(BaseAgent):
         search_ongoing = True
         while search_ongoing:
             if monotonic() < stop_time:
-                ...  # rollouts
-
+                new_nodes = self._gather_new(Constants.BATCH_SIZE)
+                leaf_batch = self._collate_inputs(new_nodes)
+                token = self.mpi.send_leaf_batch(leaf_batch)
+                self.open_tasks[token] = new_nodes
+            else:
+                search_ongoing = not self.open_tasks
+            while self.mpi.probe_value_batch():
+                pass
         self._move_tensor = self.tree.get_move_tensor()
         self._value = self.tree.get_value()
 
