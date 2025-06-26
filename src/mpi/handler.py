@@ -6,7 +6,7 @@ from cnn import CNN
 
 from enum import IntEnum, auto
 from functools import wraps
-from mpi4py import MPI
+from mpi import SMPI
 from time import time
 import numpy as np
 import traceback
@@ -25,7 +25,7 @@ def send_gracefull_exit():
     mpi.recv_exit()
     start_time = time()
     while requests and time() - start_time <= mpi.MPI_SHUTDOWN_WAIT:
-        to_remove: list[MPI.Request] = []
+        to_remove: list[SMPI.Request] = []
         for req in requests:
             if req.Get_status():
                 to_remove.append(req)
@@ -45,7 +45,7 @@ def gracefull_error(func):
     """Wrap enabling MPI shutdown on Exception.
 
     Handles errors inside the wrapped function gracefully.
-    I. e. Sends termination to all Ranks to finalize MPI.
+    I. e. Sends termination to all Ranks to finalize SMPI.
     """
 
     @wraps(func)
@@ -77,6 +77,9 @@ class Tag(IntEnum):
     VALUE_BATCH = auto()
 
 
+FieldSpec = tuple[str, np.dtype, tuple[int, ...]]
+
+
 class TokenHandler:
     """Handler for integer message Tokens.
 
@@ -86,30 +89,62 @@ class TokenHandler:
     def __init__(self, dtype: type[np.integer] = np.int32) -> None:
         """Set token starting value to 0."""
         self._current_id = 0
-        self.dtype = dtype
+        self.token_dtype = np.dtype(dtype)
 
     def new(self) -> np.ndarray:
         """Generate a new token."""
         self._current_id += 1
-        return np.full(1, self._current_id, dtype=self.dtype)
+        return np.full(1, self._current_id, dtype=self.token_dtype)
 
-    def empty_message(self, data: np.ndarray) -> np.ndarray:
-        """Generate an empty message buffer."""
-        message: np.ndarray = np.empty(
-            1,
-            dtype=[
-                ("token", self.dtype),
-                ("data", data.dtype, data.shape),
-            ],
-        )
-        return message
+    def empty_message(
+        self,
+        fields: list[FieldSpec],
+    ) -> tuple[np.ndarray, SMPI.Datatype]:
+        """Create an empty structured message with a token and given fields."""
+        # Full dtype with token prepended
+        dtype_fields = [("token", self.token_dtype)] + fields
+        struct_dtype = np.dtype(dtype_fields)
 
-    def tokenize_data(self, data: np.ndarray) -> np.ndarray:
-        """Copy Data into structure array and add a token."""
-        message = self.empty_message(data)
+        # Compute MPI datatype
+        block_lengths = []
+        displacements = []
+        mpi_types = []
+
+        for name in struct_dtype.names:
+            field_dtype, offset = struct_dtype.fields[name][:2]
+            base_dtype = field_dtype.base if field_dtype.subdtype else field_dtype
+            block_len = int(np.prod(field_dtype.shape)) if field_dtype.shape else 1
+            block_lengths.append(block_len)
+            displacements.append(int(offset))
+            mpi_types.append(SMPI._typedict[base_dtype.char])
+
+        mpi_dtype = SMPI.Datatype.Create_struct(block_lengths, displacements, mpi_types)
+        mpi_dtype.Commit()
+
+        message = np.empty(1, dtype=struct_dtype)
+        return message, mpi_dtype
+
+    def tokenize_data(
+        self,
+        names: list[str],
+        arrays: list[np.ndarray],
+    ) -> tuple[np.ndarray, SMPI.Datatype]:
+        """Build structured message from field names and homogeneous arrays."""
+        assert len(names) == len(arrays), "Name and array count mismatch"
+
+        fields: list[FieldSpec] = []
+        for name, arr in zip(names, arrays, strict=True):
+            dtype = arr.dtype
+            shape = arr.shape
+            fields.append((name, dtype, shape))
+
+        message, mpi_dtype = self.empty_message(fields)
         message["token"] = self.new()
-        message["data"] = data
-        return message
+
+        for name, array in zip(names, arrays, strict=True):
+            message[name] = array
+
+        return message, mpi_dtype
 
 
 class MPIHandler:
@@ -131,7 +166,7 @@ class MPIHandler:
     @gracefull_error
     def slurm_test(cls, num_gpus: int, agents_per_observer: int) -> MPIHandler:
         """Emulate Slurm MPI handler locally."""
-        comm = MPI.COMM_WORLD
+        comm = SMPI.COMM_WORLD
         size = comm.Get_size()
         rank = comm.Get_rank()
         processes = (
@@ -189,8 +224,8 @@ class MPIHandler:
         instance.TRAINING_WRANK = training_ranks[block_index]
 
         non_training_comm = instance._split_training()
-        if non_training_comm != MPI.COMM_NULL:
-            shared_comms = non_training_comm.Split_type(MPI.COMM_TYPE_SHARED)
+        if non_training_comm != SMPI.COMM_NULL:
+            shared_comms = non_training_comm.Split_type(SMPI.COMM_TYPE_SHARED)
             rank = non_training_comm.Get_rank()
             shared_duties = shared_comms.allgather((rank, instance.process))
             shared_inference = [r for r, p in shared_duties if p == "inference"]
@@ -240,7 +275,7 @@ class MPIHandler:
                 for r in ranks:
                     rank_to_node[r] = node_id
 
-            ncolor = rank_to_node.get(rank, MPI.UNDEFINED)
+            ncolor = rank_to_node.get(rank, SMPI.UNDEFINED)
             full_node_comm = non_training_comm.Split(ncolor, rank)
             full_node_rank = full_node_comm.Get_rank()
             full_node_size = full_node_comm.Get_size()
@@ -274,9 +309,9 @@ class MPIHandler:
                 )
             instance.INFERENCE_NRANK = inference_nranks[0]
 
-            color = MPI.UNDEFINED if instance.is_inference() else 0
+            color = SMPI.UNDEFINED if instance.is_inference() else 0
             non_inference_comm = instance.ncomm.Split(color, instance.nrank)
-            if non_inference_comm != MPI.COMM_NULL:
+            if non_inference_comm != SMPI.COMM_NULL:
                 non_inference_size = non_inference_comm.Get_size()
                 non_inference_rank = non_inference_comm.Get_rank()
                 number_observers = non_inference_size // agents_per_observer
@@ -308,7 +343,7 @@ class MPIHandler:
         """Validate and calculate the number of available gpus for this process."""
         if self.wrank == self.TRAINING_WRANK:
             self.process = "training"
-            training_name = MPI.Get_processor_name()
+            training_name = SMPI.Get_processor_name()
             if num_gpus == 0:
                 raise ValueError("No GPUS! Cannot continue.")
             if num_gpus >= 2:
@@ -320,23 +355,23 @@ class MPIHandler:
 
         training_name = self.wcomm.bcast(training_name, self.TRAINING_WRANK)
 
-        name = MPI.Get_processor_name()
+        name = SMPI.Get_processor_name()
         if name == training_name:
             num_gpus = max(num_gpus - 1, 1)
 
         return num_gpus
 
-    def _split_training(self) -> MPI.Comm:
+    def _split_training(self) -> SMPI.Comm:
         """Split away training rank."""
-        color = MPI.UNDEFINED if self.wrank == self.TRAINING_WRANK else 0
+        color = SMPI.UNDEFINED if self.wrank == self.TRAINING_WRANK else 0
         return self.wcomm.Split(color, self.wrank)
 
     def _split_node(
-        self, avail_comm: MPI.Comm, num_gpus: int
-    ) -> tuple[MPI.Comm, int | None, int | None, torch.device | None]:
+        self, avail_comm: SMPI.Comm, num_gpus: int
+    ) -> tuple[SMPI.Comm, int | None, int | None, torch.device | None]:
         """Split by shared memory resources."""
-        if avail_comm != MPI.COMM_NULL:
-            tempcomm = avail_comm.Split_type(MPI.COMM_TYPE_SHARED)
+        if avail_comm != SMPI.COMM_NULL:
+            tempcomm = avail_comm.Split_type(SMPI.COMM_TYPE_SHARED)
             tempsize = tempcomm.Get_size()
             temprank = tempcomm.Get_rank()
 
@@ -355,21 +390,21 @@ class MPIHandler:
             if rank == self.INFERENCE_NRANK:
                 self.process = "inference"
         else:
-            comm = MPI.COMM_NULL
+            comm = SMPI.COMM_NULL
             rank = None
             size = None
             device = self.device
         return comm, rank, size, device
 
     def _split_observer(
-        self, avail_comm: MPI.Comm, agents_per_observer: int
-    ) -> tuple[MPI.Comm, int | None, int | None]:
+        self, avail_comm: SMPI.Comm, agents_per_observer: int
+    ) -> tuple[SMPI.Comm, int | None, int | None]:
         """Split communicator into observer comms."""
-        if avail_comm != MPI.COMM_NULL:
+        if avail_comm != SMPI.COMM_NULL:
             rank = avail_comm.Get_rank()
-            color = MPI.UNDEFINED if rank == self.INFERENCE_NRANK else 0
+            color = SMPI.UNDEFINED if rank == self.INFERENCE_NRANK else 0
             tempcomm = avail_comm.Split(color, rank)
-            if tempcomm != MPI.COMM_NULL:
+            if tempcomm != SMPI.COMM_NULL:
                 processes_per_gpu = tempcomm.Get_size()
                 gpu_rank = tempcomm.Get_rank()
                 number_observers = processes_per_gpu // agents_per_observer
@@ -387,7 +422,7 @@ class MPIHandler:
                 return comm, rank, size
 
         # Default
-        comm = MPI.COMM_NULL
+        comm = SMPI.COMM_NULL
         rank = None
         size = None
         return comm, rank, size
@@ -403,19 +438,19 @@ class MPIHandler:
         return torch.where(torch.tensor(are_cnn, dtype=torch.bool))[0]
 
     def _split_cnn(
-        self, wcomm: MPI.Comm, cnn_wranks: torch.Tensor
-    ) -> tuple[MPI.Comm, int | None, int | None, int | None]:
+        self, wcomm: SMPI.Comm, cnn_wranks: torch.Tensor
+    ) -> tuple[SMPI.Comm, int | None, int | None, int | None]:
         """Weight sending comm setup."""
-        cnn_color = MPI.UNDEFINED if self.wrank not in cnn_wranks else 0
+        cnn_color = SMPI.UNDEFINED if self.wrank not in cnn_wranks else 0
         comm = wcomm.Split(cnn_color, self.wrank)
-        if comm != MPI.COMM_NULL:
+        if comm != SMPI.COMM_NULL:
             rank = comm.Get_rank()
             size = comm.Get_size()
 
             # Broadcast training rank in the cnn comm to all
             cnn_training_rank = wcomm.bcast(rank, self.TRAINING_WRANK)
         else:
-            comm = MPI.COMM_NULL
+            comm = SMPI.COMM_NULL
             rank = None
             size = None
             cnn_training_rank = None
@@ -430,7 +465,7 @@ class MPIHandler:
 
         Generate MPIHandler for local execution.
         """
-        logger.warning("local standard exeution be replaced by slurm test soon.")
+        logger.warning("Local standard execution be replaced by slurm test soon.")
 
         instance = cls()
         avail_gpus = instance._avail_num_gpus(num_gpus)
@@ -477,18 +512,18 @@ class MPIHandler:
         self.OBSERVER_ORANK = 0
 
         # World comm setup
-        self.wcomm: MPI.Comm = MPI.COMM_WORLD
+        self.wcomm: SMPI.Comm = SMPI.COMM_WORLD
         self.wrank: int = self.wcomm.Get_rank()
         self.wsize: int = self.wcomm.Get_size()
 
         # Initialize to empty comms
-        self.ncomm: MPI.Comm = MPI.COMM_NULL
+        self.ncomm: SMPI.Comm = SMPI.COMM_NULL
         self.nrank: int | None = None
         self.nsize: int | None = None
-        self.ocomm: MPI.Comm = MPI.COMM_NULL
+        self.ocomm: SMPI.Comm = SMPI.COMM_NULL
         self.orank: int | None = None
         self.osize: int | None = None
-        self.cnncomm: MPI.Comm = MPI.COMM_NULL
+        self.cnncomm: SMPI.Comm = SMPI.COMM_NULL
         self.cnnrank: int | None = None
         self.cnnsize: int | None = None
 
@@ -528,29 +563,29 @@ class MPIHandler:
         """Force world comm abort."""
         self.wcomm.Abort(1)
 
-    def send_exit(self) -> list[MPI.Request]:
+    def send_exit(self) -> list[SMPI.Request]:
         """Send exit message to all ranks."""
-        requests: list[MPI.Request] = []
+        requests: list[SMPI.Request] = []
         empty_msg = np.empty(0, dtype="b")
         for target in range(self.wsize):
-            req: MPI.Request = self.wcomm.Isend(
-                [empty_msg, MPI.BYTE], target, int(Tag.EXIT)
+            req: SMPI.Request = self.wcomm.Isend(
+                [empty_msg, SMPI.BYTE], target, int(Tag.EXIT)
             )
             requests.append(req)
         return requests
 
     def probe_exit(self) -> bool:
         """Check if an exit message is sent."""
-        return self.wcomm.Iprobe(MPI.ANY_SOURCE, int(Tag.EXIT))
+        return self.wcomm.Iprobe(SMPI.ANY_SOURCE, int(Tag.EXIT))
 
     def recv_exit(self) -> None:
         """Recieve an exit message."""
         empty_msg = np.empty(0, dtype="b")
-        self.wcomm.Recv([empty_msg, MPI.BYTE], MPI.ANY_SOURCE, int(Tag.EXIT))
+        self.wcomm.Recv([empty_msg, SMPI.BYTE], SMPI.ANY_SOURCE, int(Tag.EXIT))
 
     def finalize(self) -> None:
         """Gracefull finalize MPI Environment."""
-        MPI.Finalize()
+        SMPI.Finalize()
 
     # --- Send Episode Data from Observer to Training ---
     def send_episode(
@@ -571,7 +606,7 @@ class MPIHandler:
         message["states"] = np_states
         message["values"] = np_values
         message["move_tensor"] = np_move_tensors
-        self.wcomm.Isend([message, MPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE))
+        self.wcomm.Isend([message, SMPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE))
 
     def probe_episode(self, source: int) -> bool:
         """Probe if episode was sent from rank."""
@@ -579,7 +614,7 @@ class MPIHandler:
 
     def recv_episode(
         self, source: int
-    ) -> tuple[MPI.Request, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[SMPI.Request, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Recieve the episode data fom the training Rank.
 
         !!! Carefull: Before copy operations await data. !!!
@@ -593,8 +628,8 @@ class MPIHandler:
                 ("move_tensor", "f4", Constants.move_tensor_batch_shape),
             ],
         )
-        req: MPI.Request = self.wcomm.Irecv(
-            [message, MPI.BYTE], source, int(Tag.EPISODE)
+        req: SMPI.Request = self.wcomm.Irecv(
+            [message, SMPI.BYTE], source, int(Tag.EPISODE)
         )
         return (
             req,
@@ -609,7 +644,7 @@ class MPIHandler:
         empty_msg = np.empty(0, dtype="b")
         for target in range(self.cnnsize):
             self.cnncomm.Isend(
-                [empty_msg, MPI.BYTE], int(target), int(Tag.NOTIFY_WEIGHTS)
+                [empty_msg, SMPI.BYTE], int(target), int(Tag.NOTIFY_WEIGHTS)
             )
 
     def probe_weights_ready(self) -> bool:
@@ -619,7 +654,7 @@ class MPIHandler:
     def recv_weights_ready(self) -> None:
         """Send data to all processes that weights are ready."""
         empty_msg = np.empty(0, dtype="b")
-        self.wcomm.Irecv([empty_msg, MPI.BYTE], 0, int(Tag.NOTIFY_WEIGHTS))
+        self.wcomm.Irecv([empty_msg, SMPI.BYTE], 0, int(Tag.NOTIFY_WEIGHTS))
 
     def _bcast_size(self, size: int) -> int:
         """Blocking size distribution to allow for non blocking."""
@@ -641,8 +676,8 @@ class MPIHandler:
         else:
             size = self._bcast_size(0)
             buffer = bytearray(size)
-        req: MPI.Request = self.cnncomm.Ibcast(
-            [buffer, MPI.BYTE],
+        req: SMPI.Request = self.cnncomm.Ibcast(
+            [buffer, SMPI.BYTE],
             self.cnn_training_rank,
         )
         if not self.wrank == self.TRAINING_WRANK:
@@ -668,32 +703,26 @@ class MPIHandler:
         logger.debug("Reducing move Tensors")
         move_numpy_sum = np.empty(Constants.move_tensor_shape, dtype=np.float32)
         move_numpy = move_tensor.numpy()
-        self.ocomm.Reduce(move_numpy, move_numpy_sum, MPI.SUM)
+        self.ocomm.Reduce(move_numpy, move_numpy_sum, SMPI.SUM)
         return torch.from_numpy(move_numpy_sum)
 
     def reduce_values(self, value: float) -> float | None:
         """Reduce values from all ocomm."""
         logger.debug("Reducing values.")
-        red_value: float | None = self.ocomm.reduce(value, MPI.SUM, self.OBSERVER_ORANK)
+        red_value: float | None = self.ocomm.reduce(
+            value, SMPI.SUM, self.OBSERVER_ORANK
+        )
         return red_value
 
     # --- Leaves from Agents to Inference ---
     def send_leaf_batch(self, leaf_batch: torch.Tensor) -> int:
         """Send Leaf batch to inference, returning a unique Token."""
         np_leaves = leaf_batch.numpy()
-        full_message = self.token.tokenize_data(np_leaves)
-        flat_message = np.concatenate(
-            (
-                full_message["token"].view(Constants.leaf_batch_dtype),
-                full_message["data"].flatten().view(Constants.leaf_batch_dtype),
-            )
-        )
+        message = self.token.tokenize_data(np_leaves)
         self.ncomm.Isend(
-            [flat_message, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH)
+            [message, SMPI.BYTE], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH)
         )
-        print("sent", int(full_message["token"]))
-        self.ncomm.Barrier()
-        return int(full_message["token"])
+        return int(message["token"])
 
     def probe_leaf_batch(self, nsource: int) -> bool:
         """Check if leaf batch from nsource exists."""
@@ -701,24 +730,13 @@ class MPIHandler:
 
     def recv_leaf_batch(
         self, nsource: int
-    ) -> tuple[MPI.Request, int, int, torch.Tensor]:
+    ) -> tuple[SMPI.Request, int, int, torch.Tensor]:
         """Recieve Leaf batch and nsource from evaluation."""
-        data = np.empty(Constants.leaf_batch_shape, dtype=Constants.leaf_batch_dtype)
-        full_message = self.token.empty_message(data)
-        flat_message = np.concatenate(
-            (
-                full_message["token"].view(Constants.leaf_batch_dtype),
-                full_message["data"].flatten().view(Constants.leaf_batch_dtype),
-            )
+        message = self.token.empty_message(
+            Constants.leaf_batch_dtype, Constants.leaf_batch_shape
         )
-        req: MPI.Request = self.ncomm.Irecv(flat_message, nsource, int(Tag.LEAF_BATCH))
-        header_slots = full_message["token"].nbytes // flat_message.dtype.itemsize
-        req.Wait()
-        self.ncomm.Barrier()
-        token = flat_message[:header_slots].view(self.token.dtype)[0]
-        print("recv", token)
-        recv_data = flat_message[header_slots:].reshape(data.shape)
-        return req, nsource, token, torch.from_numpy(recv_data)
+        req: SMPI.Request = self.ncomm.Irecv(message, nsource, int(Tag.LEAF_BATCH))
+        return req, nsource, int(message["token"]), torch.from_numpy(message["data"])
 
     # --- Values from Inference to Agents ---
     def send_value_batch(
@@ -728,50 +746,41 @@ class MPIHandler:
         values: torch.Tensor,
         move_tensors: torch.Tensor,
     ) -> None:
-        """Send value + move batch to target nrank, flattened into one float32 buffer."""
-        np_values = values.detach().cpu().numpy().astype("f4")
-        np_move_tensors = move_tensors.detach().cpu().numpy().astype("f4")
+        """Send value batch to target nrank."""
+        np_values = values.numpy()
+        np_move_tensors = move_tensors.numpy()
+        message: np.ndarray = np.empty(
+            Constants.BATCH_SIZE,
+            dtype=[
+                ("token", "i8"),
+                ("values", "f4", *Constants.value_batch_shape),
+                ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
+            ],
+        )
+        message["token"] = token
+        message["values"] = np_values
+        message["move_tensors"] = np_move_tensors
+        self.ncomm.Isend([message, SMPI.BYTE], ntarget, int(Tag.VALUE_BATCH))
 
-        token_dtype = np.dtype(self.token.dtype)
-        float_dtype = np.dtype(Constants.value_batch_dtype)
-        token_slots = token_dtype.itemsize // float_dtype.itemsize
-        val_slots = int(np_values.size)
-        move_slots = int(np_move_tensors.size)
-        total_slots = token_slots + val_slots + move_slots
+    def probe_value_batch(self, nsource: int) -> bool:
+        """Check if a value batch."""
+        return self.ncomm.Iprobe(nsource, int(Tag.VALUE_BATCH))
 
-        flat = np.empty(total_slots, dtype=Constants.value_batch_dtype)
-        flat[:token_slots] = np.array([token], dtype=self.token.dtype).view("f4")
-        flat[token_slots : token_slots + val_slots] = np_values.ravel()
-        flat[token_slots + val_slots :] = np_move_tensors.ravel()
-        self.ncomm.Isend([flat, MPI.BYTE], ntarget, int(Tag.VALUE_BATCH))
-
-    def probe_value_batch(self) -> bool:
-        """Check if a value batch exists."""
-        return self.ncomm.Iprobe(self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
-
-    def recv_value_batch(
-        self,
-    ) -> tuple[int, torch.Tensor, torch.Tensor]:
-        """Receive flattened value+move batch from inference, unpack token + tensors."""
-        token_dtype = np.dtype(self.token.dtype)
-        float_dtype = np.dtype(Constants.value_batch_dtype)
-        token_slots = token_dtype.itemsize // float_dtype.itemsize
-
-        val_shape = Constants.value_batch_shape
-        move_shape = Constants.move_tensor_batch_shape
-        val_slots = int(np.prod(val_shape))
-        move_slots = int(np.prod(move_shape))
-        total_slots = token_slots + val_slots + move_slots
-
-        flat = np.empty(total_slots, dtype=Constants.value_batch_dtype)
-        self.ncomm.Recv([flat, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
-
-        token = flat[:token_slots].view(self.token.dtype)[0]
-        start = token_slots
-        vals_flat = flat[start : start + val_slots]
-        moves_flat = flat[start + val_slots :]
-
-        values = torch.from_numpy(vals_flat.reshape(val_shape))
-        move_tensors = torch.from_numpy(moves_flat.reshape(move_shape))
-
-        return token, values, move_tensors
+    def recv_value_batch(self) -> tuple[int, torch.Tensor, torch.Tensor]:
+        """Recieve Value and move tensor batch from Agent on nrank."""
+        message: np.ndarray = np.empty(
+            Constants.BATCH_SIZE,
+            dtype=[
+                ("token", "i8"),
+                ("values", "f4", *Constants.value_batch_shape),
+                ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
+            ],
+        )
+        self.ncomm.Recv(
+            [message, SMPI.BYTE], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH)
+        )
+        return (
+            int(message["token"]),
+            torch.from_numpy(message["values"].squeeze(0)),
+            torch.from_numpy(message["move_tensors"].squeeze(0)),
+        )

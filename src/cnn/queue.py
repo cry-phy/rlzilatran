@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 from typing import Generic, Iterator, TypeVar
-from mpi4py.MPI import Request
+from mpi import SMPI
 from collections import deque
 import torch
 
 Item = TypeVar("Item", bound="BaseItem")
+
+Request = SMPI.Request
 
 
 @dataclass

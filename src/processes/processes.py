@@ -8,6 +8,7 @@ from cnn.small import SmallCNN
 from cnn.trainer import Trainer
 from game.utils import Constants
 from mpi.handler import MPIHandler, gracefull_error
+from cnn.inferrer import Inferrer
 
 if TYPE_CHECKING:
     from agents import BaseAgent
@@ -140,6 +141,7 @@ class InferenceProcess(MPIProcess):
             Constants.state_tensor_shape,
             Constants.move_tensor_shape,
         )
+        self.inferrer = Inferrer(self.cnn, self.cnn.device)
         self.mpi = handler
         self.leaf_batch_num = config.cnn.leaf_batch_num
 
@@ -165,26 +167,17 @@ class InferenceProcess(MPIProcess):
                 self.queue.add(item)
 
         if self.queue.num_ready() >= self.leaf_batch_num:
-            for data, tokens, sources in self.dataloader:
-                logger.info("Starting inference.")
-                moves_super, values_super = self.cnn.forward(data)
-                moves_chunks = torch.split(moves_super, Constants.BATCH_SIZE)
-                values_chunks = torch.split(values_super, Constants.BATCH_SIZE)
-                sources_chunked = [sources[i] for i in range(len(moves_chunks))]
-                tokens_chunked = [tokens[i] for i in range(len(moves_chunks))]
-                for source, token, moves, values in zip(
-                    sources_chunked,
-                    tokens_chunked,
-                    moves_chunks,
-                    values_chunks,
-                    strict=True,
-                ):
-                    self.mpi.send_value_batch(
-                        ntarget=source,
-                        token=token,
-                        values=values,
-                        move_tensors=moves,
-                    )
+            logger.info("Starting inference batch processing via Inferrer.")
+            for source, token, moves, values in self.inferrer.infer_and_chunk(
+                self.dataloader
+            ):
+                self.mpi.send_value_batch(
+                    ntarget=source,
+                    token=token,
+                    values=values,
+                    move_tensors=moves,
+                )
+            logger.info("Completed inference batch and sent results.")
 
 
 class AgentProcess(MPIProcess):

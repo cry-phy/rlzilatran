@@ -172,12 +172,12 @@ class __Constants:
         return (self.BATCH_SIZE,)
 
     @property
-    def leaf_batch_dtype(self) -> str:
-        return "f4"
+    def leaf_batch_dtype(self) -> type[np.generic]:
+        return np.float32
 
     @property
-    def value_batch_dtype(self) -> str:
-        return "f4"
+    def value_batch_dtype(self) -> type[np.generic]:
+        return np.float32
 
 
 __all__ = ["Constants"]

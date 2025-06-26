@@ -1,7 +1,9 @@
 from torch import nn
 import pickle
-
 import torch
+import logging
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class CNN(nn.Module):
@@ -20,6 +22,7 @@ class CNN(nn.Module):
         """Create CNN on device."""
         instance = cls(*args, **kwargs, device=device)
         instance.to_device()
+        logger.debug("Create instance of CNN on device: %s", instance.device)
         return instance
 
     def to_device(self) -> None:

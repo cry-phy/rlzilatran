@@ -1,6 +1,5 @@
 from torch import nn
 import torch
-
 from cnn.base_cnn import CNN
 
 
@@ -42,12 +41,11 @@ class SmallCNN(CNN):
             nn.ReLU(inplace=True),
         )
 
-    def forward(self, state):
-        """Inference on the CNN."""
+    def forward(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward evaluation on the CNN."""
         intermediate = self.trunk(state.to(self.device, non_blocking=True))
-        with torch.no_grad():
-            value = self.value_head(intermediate)
-            moves = self.policy_head(intermediate)
-            value = value.squeeze(1)
-            moves = moves.permute(0, 2, 3, 1)
-        return moves.to("cpu"), value.to("cpu")
+        value = self.value_head(intermediate)
+        moves = self.policy_head(intermediate)
+        value = value.squeeze(1)
+        moves = moves.permute(0, 2, 3, 1)
+        return moves, value
