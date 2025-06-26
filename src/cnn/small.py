@@ -44,9 +44,10 @@ class SmallCNN(CNN):
 
     def forward(self, state):
         """Inference on the CNN."""
-        intermediate = self.trunk(state)
-        value = self.value_head(intermediate)
-        moves = self.policy_head(intermediate)
-        value = value.squeeze(1)
-        moves = moves.permute(0, 2, 3, 1)
-        return moves, value
+        intermediate = self.trunk(state.to(self.device, non_blocking=True))
+        with torch.no_grad():
+            value = self.value_head(intermediate)
+            moves = self.policy_head(intermediate)
+            value = value.squeeze(1)
+            moves = moves.permute(0, 2, 3, 1)
+        return moves.to("cpu"), value.to("cpu")

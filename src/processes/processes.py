@@ -159,19 +159,32 @@ class InferenceProcess(MPIProcess):
 
         for nrank in range(cast(int, self.mpi.nsize)):
             if self.mpi.probe_leaf_batch(nrank):
-                req, token, source, data = self.mpi.recv_leaf_batch(nrank)
-                item = LeafItem(req, data, source, token)
-                logger.info("Recieved Episode data from %i", source)
+                req, source, token, data = self.mpi.recv_leaf_batch(nrank)
+                item = LeafItem(request=req, data=data, source=source, token=token)
+                logger.info("Recieved leaf data from %s, %s", source, token)
                 self.queue.add(item)
 
         if self.queue.num_ready() >= self.leaf_batch_num:
-            moves = []
-            values = []
-            for data in self.dataloader:
+            for data, tokens, sources in self.dataloader:
                 logger.info("Starting inference.")
-                moves, values = self.cnn.forward(data)
-                moves.append(moves)
-                values.append(values)
+                moves_super, values_super = self.cnn.forward(data)
+                moves_chunks = torch.split(moves_super, Constants.BATCH_SIZE)
+                values_chunks = torch.split(values_super, Constants.BATCH_SIZE)
+                sources_chunked = [sources[i] for i in range(len(moves_chunks))]
+                tokens_chunked = [tokens[i] for i in range(len(moves_chunks))]
+                for source, token, moves, values in zip(
+                    sources_chunked,
+                    tokens_chunked,
+                    moves_chunks,
+                    values_chunks,
+                    strict=True,
+                ):
+                    self.mpi.send_value_batch(
+                        ntarget=source,
+                        token=token,
+                        values=values,
+                        move_tensors=moves,
+                    )
 
 
 class AgentProcess(MPIProcess):

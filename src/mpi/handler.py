@@ -1,7 +1,6 @@
 from __future__ import annotations
 import os
 
-
 from game.utils.constants import Constants
 from cnn import CNN
 
@@ -84,29 +83,30 @@ class TokenHandler:
     Currently only creates unique tokens on rank.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, dtype: type[np.integer] = np.int32) -> None:
         """Set token starting value to 0."""
         self._current_id = 0
+        self.dtype = dtype
 
     def new(self) -> np.ndarray:
         """Generate a new token."""
         self._current_id += 1
-        return np.full(1, self._current_id, dtype="i8")
+        return np.full(1, self._current_id, dtype=self.dtype)
 
-    def empty_message(self, data_shape: tuple) -> np.ndarray:
+    def empty_message(self, data: np.ndarray) -> np.ndarray:
         """Generate an empty message buffer."""
         message: np.ndarray = np.empty(
             1,
             dtype=[
-                ("token", "i8"),
-                ("data", "f4", *data_shape),
+                ("token", self.dtype),
+                ("data", data.dtype, data.shape),
             ],
         )
         return message
 
     def tokenize_data(self, data: np.ndarray) -> np.ndarray:
         """Copy Data into structure array and add a token."""
-        message = self.empty_message(data.shape)
+        message = self.empty_message(data)
         message["token"] = self.new()
         message["data"] = data
         return message
@@ -681,9 +681,19 @@ class MPIHandler:
     def send_leaf_batch(self, leaf_batch: torch.Tensor) -> int:
         """Send Leaf batch to inference, returning a unique Token."""
         np_leaves = leaf_batch.numpy()
-        message = self.token.tokenize_data(np_leaves)
-        self.ncomm.Isend([message, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH))
-        return int(message["token"])
+        full_message = self.token.tokenize_data(np_leaves)
+        flat_message = np.concatenate(
+            (
+                full_message["token"].view(Constants.leaf_batch_dtype),
+                full_message["data"].flatten().view(Constants.leaf_batch_dtype),
+            )
+        )
+        self.ncomm.Isend(
+            [flat_message, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH)
+        )
+        print("sent", int(full_message["token"]))
+        self.ncomm.Barrier()
+        return int(full_message["token"])
 
     def probe_leaf_batch(self, nsource: int) -> bool:
         """Check if leaf batch from nsource exists."""
@@ -693,9 +703,22 @@ class MPIHandler:
         self, nsource: int
     ) -> tuple[MPI.Request, int, int, torch.Tensor]:
         """Recieve Leaf batch and nsource from evaluation."""
-        message = self.token.empty_message(Constants.leaf_batch_shape)
-        req: MPI.Request = self.ncomm.Irecv(message, nsource, int(Tag.LEAF_BATCH))
-        return req, nsource, int(message["token"]), torch.from_numpy(message["data"])
+        data = np.empty(Constants.leaf_batch_shape, dtype=Constants.leaf_batch_dtype)
+        full_message = self.token.empty_message(data)
+        flat_message = np.concatenate(
+            (
+                full_message["token"].view(Constants.leaf_batch_dtype),
+                full_message["data"].flatten().view(Constants.leaf_batch_dtype),
+            )
+        )
+        req: MPI.Request = self.ncomm.Irecv(flat_message, nsource, int(Tag.LEAF_BATCH))
+        header_slots = full_message["token"].nbytes // flat_message.dtype.itemsize
+        req.Wait()
+        self.ncomm.Barrier()
+        token = flat_message[:header_slots].view(self.token.dtype)[0]
+        print("recv", token)
+        recv_data = flat_message[header_slots:].reshape(data.shape)
+        return req, nsource, token, torch.from_numpy(recv_data)
 
     # --- Values from Inference to Agents ---
     def send_value_batch(
@@ -705,39 +728,50 @@ class MPIHandler:
         values: torch.Tensor,
         move_tensors: torch.Tensor,
     ) -> None:
-        """Send value batch to target nrank."""
-        np_values = values.numpy()
-        np_move_tensors = move_tensors.numpy()
-        message: np.ndarray = np.empty(
-            Constants.BATCH_SIZE,
-            dtype=[
-                ("token", "i8"),
-                ("values", "f4", *Constants.value_batch_shape),
-                ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
-            ],
-        )
-        message["token"] = token
-        message["values"] = np_values
-        message["move_tensors"] = np_move_tensors
-        self.ncomm.Isend([message, MPI.BYTE], ntarget, int(Tag.VALUE_BATCH))
+        """Send value + move batch to target nrank, flattened into one float32 buffer."""
+        np_values = values.detach().cpu().numpy().astype("f4")
+        np_move_tensors = move_tensors.detach().cpu().numpy().astype("f4")
+
+        token_dtype = np.dtype(self.token.dtype)
+        float_dtype = np.dtype(Constants.value_batch_dtype)
+        token_slots = token_dtype.itemsize // float_dtype.itemsize
+        val_slots = int(np_values.size)
+        move_slots = int(np_move_tensors.size)
+        total_slots = token_slots + val_slots + move_slots
+
+        flat = np.empty(total_slots, dtype=Constants.value_batch_dtype)
+        flat[:token_slots] = np.array([token], dtype=self.token.dtype).view("f4")
+        flat[token_slots : token_slots + val_slots] = np_values.ravel()
+        flat[token_slots + val_slots :] = np_move_tensors.ravel()
+        self.ncomm.Isend([flat, MPI.BYTE], ntarget, int(Tag.VALUE_BATCH))
 
     def probe_value_batch(self) -> bool:
-        """Check if a value batch exist."""
+        """Check if a value batch exists."""
         return self.ncomm.Iprobe(self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
 
-    def recv_value_batch(self) -> tuple[int, torch.Tensor, torch.Tensor]:
-        """Recieve Value and move tensor batch from Agent on nrank."""
-        message: np.ndarray = np.empty(
-            Constants.BATCH_SIZE,
-            dtype=[
-                ("token", "i8"),
-                ("values", "f4", *Constants.value_batch_shape),
-                ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
-            ],
-        )
-        self.ncomm.Recv([message, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
-        return (
-            int(message["token"]),
-            torch.from_numpy(message["values"].squeeze(0)),
-            torch.from_numpy(message["move_tensors"].squeeze(0)),
-        )
+    def recv_value_batch(
+        self,
+    ) -> tuple[int, torch.Tensor, torch.Tensor]:
+        """Receive flattened value+move batch from inference, unpack token + tensors."""
+        token_dtype = np.dtype(self.token.dtype)
+        float_dtype = np.dtype(Constants.value_batch_dtype)
+        token_slots = token_dtype.itemsize // float_dtype.itemsize
+
+        val_shape = Constants.value_batch_shape
+        move_shape = Constants.move_tensor_batch_shape
+        val_slots = int(np.prod(val_shape))
+        move_slots = int(np.prod(move_shape))
+        total_slots = token_slots + val_slots + move_slots
+
+        flat = np.empty(total_slots, dtype=Constants.value_batch_dtype)
+        self.ncomm.Recv([flat, MPI.BYTE], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
+
+        token = flat[:token_slots].view(self.token.dtype)[0]
+        start = token_slots
+        vals_flat = flat[start : start + val_slots]
+        moves_flat = flat[start + val_slots :]
+
+        values = torch.from_numpy(vals_flat.reshape(val_shape))
+        move_tensors = torch.from_numpy(moves_flat.reshape(move_shape))
+
+        return token, values, move_tensors

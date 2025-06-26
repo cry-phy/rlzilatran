@@ -42,13 +42,18 @@ class Node:
         """The _parent_child_index property."""
         return self._parent_child_index
 
+    @property
+    def state(self) -> torch.Tensor:
+        """The state tensor of the game."""
+        return self._game.state_tensor
+
     def is_outer(self) -> bool:
         """Check if this is the end of rollout."""
         raise NotImplementedError(
             "Node is an abstract base class not designed for direct usage."
         )
 
-    def set(self, move_tensor: torch.Tensor, value: float) -> None:
+    def set(self, move_tensor: torch.Tensor, value: float | torch.Tensor) -> None:
         """Set the move tensors."""
         raise NotImplementedError(
             "Node is an abstract base class not designed for direct usage."
@@ -88,18 +93,22 @@ class Leaf(Node):
         self.puct_factor: float = puct_factor
         self.parent = parent
 
-        self._child_values: torch.Tensor = torch.empty(0)
-        self._child_visit_counts: torch.Tensor = torch.empty(0)
-        self._child_puct_factors: torch.Tensor = torch.empty(0)
-        self._valid_mask: torch.Tensor = torch.empty(0)
+        self._valid_mask = self._game.move_mask()
+        move_tensor = self._game.full_move_tensor(1e-5)
+        move_tensor[self._valid_mask] = 0
+        self._move_tensor = move_tensor
+        self._child_values: torch.Tensor = self._game.full_move_tensor(0)
+        self._child_visit_counts: torch.Tensor = self._game.full_move_tensor(0)
+        self._child_puct_factors: torch.Tensor = self._game.full_move_tensor(
+            self.puct_factor
+        )
+        self.children = [None] * self._move_tensor.numel()
 
     def set(self, move_tensor: torch.Tensor, value: float) -> None:
         """Set the move tensors."""
-        self._valid_mask = self._game.move_mask()
         move_tensor[~self._valid_mask] = 0
         self._move_tensor = move_tensor
         self._mean_value = value
-        self.children = [None] * self._move_tensor.numel()
         self._child_values = self._game.full_move_tensor(0)
         self._child_visit_counts = self._game.full_move_tensor(1e-5)
         self._child_puct_factors = self._game.full_move_tensor(self.puct_factor)
@@ -329,6 +338,13 @@ class Tree:
         """Retrieve move tensor from Root node."""
         return self.root.extract_policy()
 
+    def perform_rollouts(self, num: int) -> list[Node]:
+        """Perform number of rollouts and return leaf nodes."""
+        nodes = []
+        for _ in range(num):
+            nodes.append(self.root.rollout())
+        return nodes
+
 
 class MCTSAgent(BaseAgent):
     """Monte Carlo Tree Search Agent."""
@@ -359,13 +375,15 @@ class MCTSAgent(BaseAgent):
         x2, y2, flag = self._game.move_from_index(index)
         return x1, y1, x2, y2, flag
 
-    def _gather_new(self, num: int) -> list[Node]:
+    def _gather_new(self) -> list[Node]:
         """Perform rollouts and gather the resulting unevaluated nodes."""
-        ...
+        nodes = self.tree.perform_rollouts(Constants.BATCH_SIZE)
+        return nodes
 
     def _collate_inputs(self, nodes: list[Node]) -> torch.Tensor:
         """Generate state tensor minibatch for evaluation send."""
-        ...
+        states = [node.state for node in nodes]
+        return torch.cat(states)
 
     def _apply_outputs(
         self,
@@ -373,23 +391,28 @@ class MCTSAgent(BaseAgent):
         values: torch.Tensor,
         move_tensors: torch.Tensor,
     ) -> None:
-        """Apply the to the nodes."""
-        ...
+        """Apply the to the nodes and backpropagate."""
+        for i, node in enumerate(nodes):
+            node.set(move_tensors[i], values[i])
+            node.backpropagate(torch.empty(0))
 
     def generate_move_tensor(self) -> None:
         """Generate move tensor and value."""
         stop_time = monotonic() + self.search_time
         search_ongoing = True
         while search_ongoing:
-            if monotonic() < stop_time:
-                new_nodes = self._gather_new(Constants.BATCH_SIZE)
-                leaf_batch = self._collate_inputs(new_nodes)
-                token = self.mpi.send_leaf_batch(leaf_batch)
-                self.open_tasks[token] = new_nodes
-            else:
+            if monotonic() > stop_time:
                 search_ongoing = not self.open_tasks
+            else:
+                new_nodes = self._gather_new()
+                leaf_batch = self._collate_inputs(new_nodes)
+                send_token = self.mpi.send_leaf_batch(leaf_batch)
+                self.open_tasks[send_token] = new_nodes
             while self.mpi.probe_value_batch():
-                pass
+                recv_token, values, move_tensors = self.mpi.recv_value_batch()
+                nodes = self.open_tasks[recv_token]
+                self._apply_outputs(nodes, values, move_tensors)
+                del self.open_tasks[recv_token]
         self._move_tensor = self.tree.get_move_tensor()
         self._value = self.tree.get_value()
 

@@ -171,6 +171,14 @@ class __Constants:
     def value_batch_shape(self) -> tuple[int]:
         return (self.BATCH_SIZE,)
 
+    @property
+    def leaf_batch_dtype(self) -> str:
+        return "f4"
+
+    @property
+    def value_batch_dtype(self) -> str:
+        return "f4"
+
 
 __all__ = ["Constants"]
 Constants = __Constants()
