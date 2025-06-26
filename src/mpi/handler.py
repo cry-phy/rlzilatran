@@ -77,7 +77,7 @@ class Tag(IntEnum):
     VALUE_BATCH = auto()
 
 
-FieldSpec = tuple[str, np.dtype, tuple[int, ...]]
+FieldSpec = tuple[str, type[np.generic], tuple[int, ...]]
 
 
 class TokenHandler:
@@ -718,10 +718,8 @@ class MPIHandler:
     def send_leaf_batch(self, leaf_batch: torch.Tensor) -> int:
         """Send Leaf batch to inference, returning a unique Token."""
         np_leaves = leaf_batch.numpy()
-        message = self.token.tokenize_data(np_leaves)
-        self.ncomm.Isend(
-            [message, SMPI.BYTE], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH)
-        )
+        message, dtype = self.token.tokenize_data(["data"], [np_leaves])
+        self.ncomm.Isend([message, dtype], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH))
         return int(message["token"])
 
     def probe_leaf_batch(self, nsource: int) -> bool:
@@ -730,13 +728,18 @@ class MPIHandler:
 
     def recv_leaf_batch(
         self, nsource: int
-    ) -> tuple[SMPI.Request, int, int, torch.Tensor]:
+    ) -> tuple[SMPI.Request, int, int | np.ndarray, torch.Tensor]:
         """Recieve Leaf batch and nsource from evaluation."""
-        message = self.token.empty_message(
-            Constants.leaf_batch_dtype, Constants.leaf_batch_shape
+        recv_spec: FieldSpec = (
+            "data",
+            Constants.leaf_batch_dtype,
+            Constants.leaf_batch_shape,
         )
-        req: SMPI.Request = self.ncomm.Irecv(message, nsource, int(Tag.LEAF_BATCH))
-        return req, nsource, int(message["token"]), torch.from_numpy(message["data"])
+        message, dtype = self.token.empty_message([recv_spec])
+        req: SMPI.Request = self.ncomm.Irecv(
+            [message, dtype], nsource, int(Tag.LEAF_BATCH)
+        )
+        return req, nsource, message["token"], torch.from_numpy(message["data"])
 
     # --- Values from Inference to Agents ---
     def send_value_batch(
@@ -749,38 +752,42 @@ class MPIHandler:
         """Send value batch to target nrank."""
         np_values = values.numpy()
         np_move_tensors = move_tensors.numpy()
-        message: np.ndarray = np.empty(
-            Constants.BATCH_SIZE,
-            dtype=[
-                ("token", "i8"),
-                ("values", "f4", *Constants.value_batch_shape),
-                ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
-            ],
+        recv_spec_value: FieldSpec = (
+            "values",
+            Constants.value_batch_dtype,
+            Constants.value_batch_shape,
         )
+        recv_spec_moves: FieldSpec = (
+            "move_tensors",
+            Constants.move_tensor_batch_dtype,
+            Constants.move_tensor_batch_shape,
+        )
+        message, dtype = self.token.empty_message([recv_spec_value, recv_spec_moves])
         message["token"] = token
         message["values"] = np_values
         message["move_tensors"] = np_move_tensors
-        self.ncomm.Isend([message, SMPI.BYTE], ntarget, int(Tag.VALUE_BATCH))
+        self.ncomm.Isend([message, dtype], ntarget, int(Tag.VALUE_BATCH))
 
-    def probe_value_batch(self, nsource: int) -> bool:
+    def probe_value_batch(self) -> bool:
         """Check if a value batch."""
-        return self.ncomm.Iprobe(nsource, int(Tag.VALUE_BATCH))
+        return self.ncomm.Iprobe(self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
 
     def recv_value_batch(self) -> tuple[int, torch.Tensor, torch.Tensor]:
         """Recieve Value and move tensor batch from Agent on nrank."""
-        message: np.ndarray = np.empty(
-            Constants.BATCH_SIZE,
-            dtype=[
-                ("token", "i8"),
-                ("values", "f4", *Constants.value_batch_shape),
-                ("move_tensors", "f4", *Constants.move_tensor_batch_shape),
-            ],
+        recv_spec_value: FieldSpec = (
+            "values",
+            Constants.value_batch_dtype,
+            Constants.value_batch_shape,
         )
-        self.ncomm.Recv(
-            [message, SMPI.BYTE], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH)
+        recv_spec_moves: FieldSpec = (
+            "move_tensors",
+            Constants.move_tensor_batch_dtype,
+            Constants.move_tensor_batch_shape,
         )
+        message, dtype = self.token.empty_message([recv_spec_value, recv_spec_moves])
+        self.ncomm.Recv([message, dtype], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
         return (
             int(message["token"]),
-            torch.from_numpy(message["values"].squeeze(0)),
-            torch.from_numpy(message["move_tensors"].squeeze(0)),
+            torch.from_numpy(message["values"]),
+            torch.from_numpy(message["move_tensors"]),
         )

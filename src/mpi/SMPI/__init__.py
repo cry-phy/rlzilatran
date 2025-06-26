@@ -30,6 +30,7 @@ from mpi4py.MPI import (
     UNDEFINED,  # noqa: F401, W0611
     Get_processor_name,  # noqa: F401, W0611
     Finalize,  # noqa: F401, W0611
+    _typedict,  # noqa: F401, W0611
 )
 
 # Create a list of the names that were explicitly imported.
@@ -48,6 +49,7 @@ _explicitly_imported_symbols = [
     "UNDEFINED",
     "Get_processor_name",
     "Finalize",
+    "_typedict",
 ]
 
 # --- END EXPLICIT IMPORTS FOR STATIC ANALYSIS / LINTERS ---

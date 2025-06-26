@@ -179,6 +179,10 @@ class __Constants:
     def value_batch_dtype(self) -> type[np.generic]:
         return np.float32
 
+    @property
+    def move_tensor_batch_dtype(self) -> type[np.generic]:
+        return np.float32
+
 
 __all__ = ["Constants"]
 Constants = __Constants()
