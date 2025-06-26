@@ -4,6 +4,6 @@ agent1 = "MCTSAgent"
 agent2 = "MCTSAgent"
 
 [cnn]
-leaf_batch_num = 8
+leaf_batch_num = 256
 episode_batch_num = 1
 replay_buffer_size = 5000

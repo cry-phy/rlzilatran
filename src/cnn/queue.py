@@ -3,6 +3,7 @@ from typing import Generic, Iterator, TypeVar
 from mpi import SMPI
 from collections import deque
 import torch
+import numpy as np
 
 Item = TypeVar("Item", bound="BaseItem")
 
@@ -22,7 +23,7 @@ class LeafItem(BaseItem):
     """Leaf Item."""
 
     source: int
-    token: int | torch.Tensor
+    token: np.ndarray
 
 
 @dataclass
@@ -43,7 +44,7 @@ class Queue(Generic[Item]):
 
     def gen_readiness(self) -> torch.Tensor:
         """Generate the readiness of the requests."""
-        return torch.tensor([item.request.Get_status() for item in self._data])
+        return torch.tensor([item.request.Test() for item in self._data])
 
     def add(self, item: Item) -> None:
         """Add to deque."""

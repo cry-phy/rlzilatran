@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+
 from config import Settings
 from cnn.loader import get_episode_loader, get_leaf_loader
 from cnn.queue import EpisodeItem, LeafItem, Queue
@@ -163,7 +164,7 @@ class InferenceProcess(MPIProcess):
             if self.mpi.probe_leaf_batch(nrank):
                 req, source, token, data = self.mpi.recv_leaf_batch(nrank)
                 item = LeafItem(request=req, data=data, source=source, token=token)
-                logger.info("Recieved leaf data from %s, %s", source, token)
+                logger.info("Recieved leaf data from %s", source)
                 self.queue.add(item)
 
         if self.queue.num_ready() >= self.leaf_batch_num:

@@ -572,6 +572,7 @@ class MPIHandler:
                 [empty_msg, SMPI.BYTE], target, int(Tag.EXIT)
             )
             requests.append(req)
+            req.Wait()
         return requests
 
     def probe_exit(self) -> bool:
@@ -606,7 +607,10 @@ class MPIHandler:
         message["states"] = np_states
         message["values"] = np_values
         message["move_tensor"] = np_move_tensors
-        self.wcomm.Isend([message, SMPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE))
+        req = self.wcomm.Isend(
+            [message, SMPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE)
+        )
+        req.Wait()
 
     def probe_episode(self, source: int) -> bool:
         """Probe if episode was sent from rank."""
@@ -719,7 +723,10 @@ class MPIHandler:
         """Send Leaf batch to inference, returning a unique Token."""
         np_leaves = leaf_batch.numpy()
         message, dtype = self.token.tokenize_data(["data"], [np_leaves])
-        self.ncomm.Isend([message, dtype], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH))
+        req = self.ncomm.Isend(
+            [message, dtype], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH)
+        )
+        req.Wait()
         return int(message["token"])
 
     def probe_leaf_batch(self, nsource: int) -> bool:
@@ -739,7 +746,13 @@ class MPIHandler:
         req: SMPI.Request = self.ncomm.Irecv(
             [message, dtype], nsource, int(Tag.LEAF_BATCH)
         )
-        return req, nsource, message["token"], torch.from_numpy(message["data"])
+        req.Wait()
+        return (
+            req,
+            nsource,
+            message["token"],
+            torch.from_numpy(message["data"].squeeze(0)),
+        )
 
     # --- Values from Inference to Agents ---
     def send_value_batch(
@@ -766,7 +779,8 @@ class MPIHandler:
         message["token"] = token
         message["values"] = np_values
         message["move_tensors"] = np_move_tensors
-        self.ncomm.Isend([message, dtype], ntarget, int(Tag.VALUE_BATCH))
+        req = self.ncomm.Isend([message, dtype], ntarget, int(Tag.VALUE_BATCH))
+        req.Wait()
 
     def probe_value_batch(self) -> bool:
         """Check if a value batch."""
@@ -788,6 +802,6 @@ class MPIHandler:
         self.ncomm.Recv([message, dtype], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
         return (
             int(message["token"]),
-            torch.from_numpy(message["values"]),
-            torch.from_numpy(message["move_tensors"]),
+            torch.from_numpy(message["values"].squeeze(0)),
+            torch.from_numpy(message["move_tensors"].squeeze(0)),
         )
