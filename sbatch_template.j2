@@ -6,12 +6,31 @@
 {%- endif %}
 
 # General Options Block
-#SBATCH --exclusive
 #SBATCH --job-name={{ jobname_prefix }}_{{ jobname }}
-#SBATCH --nodes={{ nodes }}
-#SBATCH --output={{ jobname }}.log
+#SBATCH --output={{ jobname }}/{{ jobname }}.log
 #SBATCH --time={{ time }}
 #SBATCH --hint=nomultithread
+#SBATCH --mail-user=christof.stein@student.uibk.ac.at
+#SBATCH --mail-type=ALL
+
+# Training GPU processes
+#SBATCH --ntasks={{ gpu_train_proc }}
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task={{ gpu_threads_t }}
+#SBATCH --mem-per-cpu={{ gpu_mem_t }}MB
+
+# Inference GPU processes
+#SBATCH hetjob
+#SBATCH --ntasks={{ gpu_inference_proc }}
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task={{ gpu_threads_i }}
+#SBATCH --mem-per-cpu={{ gpu_mem_i }}MB
+
+# CPU processes
+#SBATCH hetjob
+#SBATCH --ntasks={{ cpu_processes }}
+#SBATCH --cpus-per-task={{ cpu_threads }}
+#SBATCH --mem-per-cpu={{ cpu_memory }}MB
 
 {%- if queue %}
 #SBATCH --partition={{ queue }}
@@ -25,29 +44,17 @@ echo "Using Python: $(which python)"
 
 # --- Call slurm entry point ---
 srun --mpi=pmi2 --export=ALL \
-    -N{{ gpu_train_proc }} -n1 \
-       --gres=gpu:a30:{{ gpu_train_proc }} \
+       --ntasks={{ gpu_train_proc }} \
+       --gpus-per-task=1 \
        --cpus-per-task={{ gpu_threads_t }} \
-       --mem={{ gpu_mem_t }}MB \
+       --mem-per-cpu={{ gpu_mem_t }}MB \
     python src/main.py slurm --process=training \
-  : -N{{ gpu_train_proc }} -n{{ gpus_per_node - 1}} \
-       --gres=gpu:a30:{{ gpus_per_node - 1}} \
+  :    --ntasks={{ gpu_inference_proc }} \
+       --gpus-per-task=1 \
        --cpus-per-task={{ gpu_threads_i }} \
-       --mem={{ gpu_mem_i }}MB \
+       --mem-per-cpu={{ gpu_mem_i }}MB \
      python src/main.py slurm --process=inference \
-  : -N{{ gpu_train_proc }} -n{{ gpu_train_proc }} \
-       --ntasks-per-node={{ cpu_processes_node0 }} \
-       --gres=gpu:0 \
+  :    --ntasks={{ cpu_processes }} \
        --cpus-per-task={{ cpu_threads }} \
-       --mem={{ cpu_memory }}MB \
-     python src/main.py slurm --process=worker --agents-per-observer={{ agents_per_observer }}
-  : -N{{ nodes - gpu_train_proc }} --ntasks-per-node={{ gpus_per_node }} \
-       --gres=gpu:a30:{{ gpus_per_node }} \
-       --cpus-per-task={{ gpu_threads_i }} \
-       --mem={{ gpu_mem_i }}MB \
-     python src/main.py slurm --process=inference \
-  : -N{{ nodes - gpu_train_proc }} --ntasks-per-node={{ cpu_processes_noden }} \
-       --gres=gpu:0 \
-       --cpus-per-task={{ cpu_threads }} \
-       --mem={{ cpu_memory }}MB \
+       --mem-per-cpu={{ cpu_memory }}MB \
      python src/main.py slurm --process=worker --agents-per-observer={{ agents_per_observer }}
