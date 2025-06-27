@@ -10,7 +10,7 @@ avoid double initialization (e.g., with srun), and facilitate backend changes.
 This module contains the MPIHandler Singleton responsible for generating the
 corresponding MPI Communicators and encapsulating send and receive operations.
 """
-
+print("from the other side")
 # To globally prepare processes before usage of MPI, we need this!
 # This must remain the first import in this file!
 import mpi4py

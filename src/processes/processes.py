@@ -264,6 +264,7 @@ class ObserverProcess(MPIProcess):
         logger.debug("Generated Move Tensor.")
         move_tensor = agent.reduce_move_tensors()
         value = cast(float, agent.reduce_values())
+        print("gen_move", move_tensor, value)
         return move_tensor, value
 
     @gracefull_error

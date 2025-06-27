@@ -3,6 +3,7 @@ import os
 
 from game.utils.constants import Constants
 from cnn import CNN
+from cnn.queue import Queue, BaseItem
 
 from enum import IntEnum, auto
 from functools import wraps
@@ -180,6 +181,8 @@ class MPIHandler:
         """Generate MPIHandler for Slurm hetjob execution."""
         if process not in cls.valid_process:
             raise ValueError(f"{process} is not a valid process {cls.valid_process}")
+        
+        logger.info("Node %s is preparing to run a process %s", os.environ["SLURM_NODEID"], process)
 
         instance = cls()
         instance.process = process
@@ -232,9 +235,12 @@ class MPIHandler:
 
             abandoned = not shared_inference
             node_id = int(os.environ["SLURM_NODEID"])
+            print(node_id)
             ranks_status = non_training_comm.allgather((rank, node_id, abandoned))
-            abandoned = [r for r, _, a in ranks_status if a]
-            non_abandoned = [(r, nid) for r, nid, a in ranks_status if not a]
+            abandoned_ranks = [r for r, _, a in ranks_status if a]
+            non_abandoned_ranks = [(r, nid) for r, nid, a in ranks_status if not a]
+            print("aba", abandoned_ranks)
+            print("naba", non_abandoned_ranks)
 
             shared_workers = [r for r, p in shared_duties if p == "worker"]
             num_shared_workers = len(shared_workers)
@@ -243,31 +249,35 @@ class MPIHandler:
             else:
                 needed_workers = None
             needed_list = non_training_comm.allgather((node_id, needed_workers))
+            print("list", needed_list, node_id)
             all_node_ids = [
                 node_id
                 for node_id, needed_workers in needed_list
                 if needed_workers is not None
             ]
+            print(all_node_ids)
             node_ids = list(set(all_node_ids))
             node_to_needed = {}
             for node_id, needed in needed_list:
                 # If node_id not recorded yet, save it
-                if node_id not in node_to_needed and needed != 0:
+                if node_id not in node_to_needed and needed is not None:
                     node_to_needed[node_id] = needed
 
+            print(node_to_needed)
+
             assignments = {node_id: [] for node_id in node_ids}
-            while abandoned:
+            while abandoned_ranks:
                 # highest need first
                 node_id = max(
                     (nid for nid in node_to_needed if node_to_needed[nid] > 0),
                     key=lambda nid: node_to_needed[nid],
                     default=None,
                 )
-                abandoned_rank = abandoned.pop()
+                abandoned_rank = abandoned_ranks.pop()
                 assignments[node_id].append(abandoned_rank)
                 node_to_needed[node_id] -= 1
 
-            for rank, node_id in non_abandoned:
+            for rank, node_id in non_abandoned_ranks:
                 assignments[node_id].append(rank)
 
             rank_to_node = {}
@@ -304,7 +314,7 @@ class MPIHandler:
                 raise RuntimeError("No inference ranks found — cannot assign workers.")
             if len(inference_nranks) > 1:
                 logger.warning(
-                    "CArefull there might be the wrong number of inference processes in ncomm: Is: %i should be 1",
+                    "Carefull there might be the wrong number of inference processes in ncomm: Is: %i should be 1",
                     len(inference_nranks),
                 )
             instance.INFERENCE_NRANK = inference_nranks[0]
@@ -335,8 +345,8 @@ class MPIHandler:
         instance.cnnrank = cnnrank
         instance.cnnsize = cnnsize
 
+        print("instance %s", instance)
         instance.cnn_training_rank = cnn_training_rank
-
         return instance
 
     def _avail_num_gpus(self, num_gpus: int) -> int:
@@ -532,6 +542,9 @@ class MPIHandler:
 
         self.cnn_training_rank: int | None = None
         self._init = True
+        
+        # Need to hold the data for non blocking operations
+        self.send_queue: Queue[BaseItem] = Queue(1)
 
     def get_device(self) -> torch.device:
         """Return the current device."""
@@ -572,7 +585,8 @@ class MPIHandler:
                 [empty_msg, SMPI.BYTE], target, int(Tag.EXIT)
             )
             requests.append(req)
-            req.Wait()
+            item = BaseItem(int(Tag.EXIT), empty_msg)
+            self.send_queue.add(item)
         return requests
 
     def probe_exit(self) -> bool:
@@ -599,9 +613,9 @@ class MPIHandler:
         message: np.ndarray = np.empty(
             1,
             dtype=[
-                ("states", "f4", Constants.state_tensor_batch_shape),
-                ("values", "f4", Constants.value_batch_shape),
-                ("move_tensor", "f4", Constants.move_tensor_batch_shape),
+                ("states", Constants.state_tensor_batch_dtype, Constants.state_tensor_batch_shape),
+                ("values", Constants.value_batch_dtype, Constants.value_batch_shape),
+                ("move_tensor", Constants.move_tensor_batch_dtype, Constants.move_tensor_batch_shape),
             ],
         )
         message["states"] = np_states
@@ -610,7 +624,8 @@ class MPIHandler:
         req = self.wcomm.Isend(
             [message, SMPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE)
         )
-        req.Wait()
+        item = BaseItem(int(Tag.EPISODE), message)
+        self.send_queue.add(item)
 
     def probe_episode(self, source: int) -> bool:
         """Probe if episode was sent from rank."""
@@ -627,9 +642,9 @@ class MPIHandler:
         message: np.ndarray = np.empty(
             1,
             dtype=[
-                ("states", "f4", Constants.state_tensor_batch_shape),
-                ("values", "f4", Constants.value_batch_shape),
-                ("move_tensor", "f4", Constants.move_tensor_batch_shape),
+                ("states", Constants.state_tensor_batch_dtype, Constants.state_tensor_batch_shape),
+                ("values", Constants.value_batch_dtype, Constants.value_batch_shape),
+                ("move_tensor", Constants.move_tensor_batch_dtype, Constants.move_tensor_batch_shape),
             ],
         )
         req: SMPI.Request = self.wcomm.Irecv(
@@ -650,6 +665,8 @@ class MPIHandler:
             self.cnncomm.Isend(
                 [empty_msg, SMPI.BYTE], int(target), int(Tag.NOTIFY_WEIGHTS)
             )
+            item = BaseItem(int(Tag.NOTIFY_WEIGHTS), empty_msg)
+            self.send_queue.add(item)
 
     def probe_weights_ready(self) -> bool:
         """Check if a notification of weights ready exists."""
@@ -726,7 +743,8 @@ class MPIHandler:
         req = self.ncomm.Isend(
             [message, dtype], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH)
         )
-        req.Wait()
+        item = BaseItem(int(Tag.LEAF_BATCH), message)
+        self.send_queue.add(item)
         return int(message["token"])
 
     def probe_leaf_batch(self, nsource: int) -> bool:
@@ -780,7 +798,8 @@ class MPIHandler:
         message["values"] = np_values
         message["move_tensors"] = np_move_tensors
         req = self.ncomm.Isend([message, dtype], ntarget, int(Tag.VALUE_BATCH))
-        req.Wait()
+        item = BaseItem(int(Tag.VALUE_BATCH), message)
+        self.send_queue.add(item)
 
     def probe_value_batch(self) -> bool:
         """Check if a value batch."""
