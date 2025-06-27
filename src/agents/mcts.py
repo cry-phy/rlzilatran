@@ -1,5 +1,4 @@
 from __future__ import annotations
-from collections import deque
 from time import monotonic
 from typing import cast
 
@@ -8,6 +7,10 @@ import torch
 from agents import BaseAgent
 from game import Game
 from game.utils import Constants
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Node:
@@ -23,9 +26,6 @@ class Node:
         self.parent: Node = self
         self._parent_child_index: torch.Tensor = child_index
         self.children: list[Node | None] = []
-        self.selected: bool = (
-            False  # Indicates if the node is part of the selected path
-        )
 
     @property
     def visit_count(self) -> int:
@@ -73,6 +73,15 @@ class Node:
         raise NotImplementedError(
             "Node is an abstract base class not designed for direct usage."
         )
+
+    def __str__(self) -> str:
+        """Sringify."""
+        num_children = sum(c is not None for c in self.children)
+        return f"Node(mean_value={self._mean_value:.3f}, visits={self._visit_count}, children={num_children})"
+
+    def __repr__(self) -> str:
+        """Represtentation method."""
+        return self.__str__()
 
 
 class Leaf(Node):
@@ -219,10 +228,8 @@ class Root(Leaf):
         instance.children = node.children
         instance._mean_value = node.mean_value
         instance._game = node._game.copy()
-        instance._score = node._score
         instance._move_tensor = node._move_tensor
         instance._parent_child_index = node.parent_child_index
-        instance.selected = node.selected
 
         # Handle optional Leaf fields if they exist
         if isinstance(node, Leaf):
@@ -236,13 +243,11 @@ class Root(Leaf):
 
     def extract_policy(self) -> torch.Tensor:
         """Extract policy from child node visit counts."""
-        node_value_list = [
-            node.visit_count for node in self.children if node is not None
-        ]
-        node_value_tensor = torch.tensor(node_value_list, dtype=torch.float32)
-        move_tensor = (
-            node_value_tensor.reshape(self._move_tensor.shape) / node_value_tensor.sum()
-        )
+        move_tensor = self._game.full_move_tensor(0)
+        node_value_tensor = move_tensor.flatten()
+        for index, node in enumerate(self.children):
+            node_value_tensor[index] = 0 if node is None else node.visit_count
+        move_tensor = move_tensor / move_tensor.sum()
         return move_tensor
 
     def extract_value(self) -> float:
@@ -261,11 +266,9 @@ class SubtreeRoot(Root):
 class Tree:
     """Encapsulate Tree building, caching and iterating."""
 
-    def __init__(self, game: Game, maxlen: int, puct_factor: float) -> None:
+    def __init__(self, game: Game, puct_factor: float) -> None:
         """Initialize Tree, new Node list."""
-        self.to_evaluate: deque[Node] = deque(maxlen=maxlen)
         self.root: Root = Root(game.copy(), puct_factor)
-        self.to_evaluate.append(self.root)
 
     # Dot file generation methods
     def recurse_to_str(self, node: Node, lines: list[str]) -> list[str]:
@@ -352,8 +355,8 @@ class MCTSAgent(BaseAgent):
     def __init__(self, game: Game) -> None:
         """Initialize MCTS Agent."""
         super().__init__(game)
-        self.tree = Tree(self._game, Constants.BATCH_SIZE, 1.5)
-        self.search_time = 10000
+        self.tree = Tree(self._game, 1.5)
+        self.search_time = 10
         self.open_tasks = {}
 
     def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
@@ -371,7 +374,8 @@ class MCTSAgent(BaseAgent):
         int | torch.Tensor,
     ]:
         """Generate a move for the current game."""
-        x1, y1, index = torch.argmax(move_tensor)
+        flat_index = torch.argmax(move_tensor)
+        x1, y1, index = torch.unravel_index(flat_index, move_tensor.shape)
         x2, y2, flag = self._game.move_from_index(index)
         return x1, y1, x2, y2, flag
 
@@ -398,11 +402,12 @@ class MCTSAgent(BaseAgent):
 
     def generate_move_tensor(self) -> None:
         """Generate move tensor and value."""
-        stop_time = monotonic() + self.search_time
+        eval_count = 0
+        start_time = monotonic()
         search_ongoing = True
         while search_ongoing:
-            if monotonic() > stop_time:
-                search_ongoing = not self.open_tasks
+            if monotonic() > start_time + self.search_time:
+                search_ongoing = bool(self.open_tasks)
             else:
                 new_nodes = self._gather_new()
                 leaf_batch = self._collate_inputs(new_nodes)
@@ -413,17 +418,12 @@ class MCTSAgent(BaseAgent):
                 nodes = self.open_tasks[recv_token]
                 self._apply_outputs(nodes, values, move_tensors)
                 del self.open_tasks[recv_token]
+                eval_count += 1
         self._move_tensor = self.tree.get_move_tensor()
         self._value = self.tree.get_value()
-
-
-# MCTS control flow
-# while searching:
-#     rollout
-#     leaf batch append leaf
-#     if leaf batch enough:
-#         isend leaf batch
-#     while value batch exist:
-#         recv value batch
-#     Adjust Tree weights
-# Return value, move tensor
+        logger.info(
+            "Ran through %i Batches (%i States) in %s",
+            eval_count,
+            eval_count * Constants.BATCH_SIZE,
+            monotonic() - start_time,
+        )

@@ -20,7 +20,7 @@ class LeafDataset(IterableDataset):
 
     def __iter__(self) -> Iterator:
         """Generate Iterator for a frozen super batch."""
-        super_batch_items = self.queue.retrieve_ready()
+        super_batch_items = self.queue.poll()
         yield from super_batch_items
 
     def retrieve_identifiers(self) -> tuple[list[int], list[int]]:
@@ -38,7 +38,7 @@ class EpisodeDataset(IterableDataset):
 
     def __iter__(self) -> Iterator:
         """Generate Iterator for frozen super batch."""
-        super_batch_items = self.queue.retrieve_ready()
+        super_batch_items = self.queue.poll()
         self.replay_buffer.add(super_batch_items)
         logger.info("Using %i recorded batches.", len(self.replay_buffer))
         yield from self.replay_buffer

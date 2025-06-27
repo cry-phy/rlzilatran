@@ -1,4 +1,3 @@
-print("Hello")
 from mpi import MPIHandler, SMPI
 from config import Settings, get_config
 from processes import get_process

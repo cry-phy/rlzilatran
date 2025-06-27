@@ -1,4 +1,5 @@
 from __future__ import annotations
+from time import monotonic
 from typing import TYPE_CHECKING
 
 
@@ -88,11 +89,11 @@ class TrainingProcess(MPIProcess):
     """Initialize process running batching and training CNN."""
 
     def __init__(self, config: Settings, handler: MPIHandler) -> None:
-        """Initialize CNN inference."""
+        """Initialize CNN Training."""
         super().__init__()
-        self.queue = Queue(Constants.BATCH_SIZE)
+        self.queue = Queue()
         self.dataset, self.dataloader = get_episode_loader(
-            self.queue, Constants.BATCH_SIZE, config.cnn.replay_buffer_size
+            self.queue, config.cnn.super_batch_size, config.cnn.replay_buffer_size
         )
         self.cnn = SmallCNN.create(
             handler.get_device(),
@@ -132,9 +133,9 @@ class InferenceProcess(MPIProcess):
     def __init__(self, config: Settings, handler: MPIHandler) -> None:
         """Initialize CNN inference."""
         super().__init__()
-        self.queue = Queue(Constants.BATCH_SIZE)
+        self.queue = Queue()
         self.dataset, self.dataloader = get_leaf_loader(
-            self.queue, Constants.BATCH_SIZE
+            self.queue, config.cnn.super_batch_size
         )
         self.cnn = SmallCNN.create(
             handler.get_device(),
@@ -145,6 +146,9 @@ class InferenceProcess(MPIProcess):
         self.inferrer = Inferrer(self.cnn, self.cnn.device)
         self.mpi = handler
         self.leaf_batch_num = config.cnn.leaf_batch_num
+
+        self._last_inference = monotonic()
+        self._inference_timing = config.cnn.inference_timing
 
     def run(self) -> None:
         """Run the Process."""
@@ -164,10 +168,15 @@ class InferenceProcess(MPIProcess):
             if self.mpi.probe_leaf_batch(nrank):
                 req, source, token, data = self.mpi.recv_leaf_batch(nrank)
                 item = LeafItem(request=req, data=data, source=source, token=token)
-                logger.info("Recieved leaf data from %s", source)
+                logger.debug("Recieved leaf data from %s", source)
                 self.queue.add(item)
 
-        if self.queue.num_ready() >= self.leaf_batch_num:
+        current = monotonic()
+        should_run_inference = (
+            self.queue.num_ready() >= self.leaf_batch_num
+            or self._last_inference + self._inference_timing <= current
+        )
+        if should_run_inference:
             logger.info("Starting inference batch processing via Inferrer.")
             for source, token, moves, values in self.inferrer.infer_and_chunk(
                 self.dataloader
@@ -178,6 +187,7 @@ class InferenceProcess(MPIProcess):
                     values=values,
                     move_tensors=moves,
                 )
+            self._last_inference = current
             logger.info("Completed inference batch and sent results.")
 
 
@@ -264,7 +274,6 @@ class ObserverProcess(MPIProcess):
         logger.debug("Generated Move Tensor.")
         move_tensor = agent.reduce_move_tensors()
         value = cast(float, agent.reduce_values())
-        print("gen_move", move_tensor, value)
         return move_tensor, value
 
     @gracefull_error

@@ -3,8 +3,8 @@ from torch.utils.data import DataLoader
 from typing import Iterator
 import logging
 
-from game.utils.constants import Constants
 from cnn.base_cnn import CNN
+from game.utils.constants import Constants
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class Inferrer:
 
         with torch.no_grad():
             for data, tokens, sources in dataloader:
-                logger.info("Running CNN inference on batch.")
+                logger.debug("Running CNN inference on batch.")
                 data = data.to(self.device, non_blocking=True)
                 moves_super, values_super = self.cnn(data)
                 moves_chunks = torch.split(
@@ -35,8 +35,12 @@ class Inferrer:
                 values_chunks = torch.split(
                     values_super.to(device="cpu"), Constants.BATCH_SIZE
                 )
-                sources_chunked = [sources[i] for i in range(len(moves_chunks))]
-                tokens_chunked = [tokens[i] for i in range(len(moves_chunks))]
+                sources_chunked = [
+                    sources[i] for i in range(0, len(sources), Constants.BATCH_SIZE)
+                ]
+                tokens_chunked = [
+                    tokens[i] for i in range(0, len(tokens), Constants.BATCH_SIZE)
+                ]
                 yield from zip(
                     sources_chunked,
                     tokens_chunked,

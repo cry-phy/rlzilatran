@@ -3,12 +3,12 @@ import os
 
 from game.utils.constants import Constants
 from cnn import CNN
-from cnn.queue import Queue, BaseItem
+from cnn.queue import MessageItem, Queue
 
 from enum import IntEnum, auto
 from functools import wraps
 from mpi import SMPI
-from time import time
+from time import sleep, time
 import numpy as np
 import traceback
 import logging
@@ -181,8 +181,12 @@ class MPIHandler:
         """Generate MPIHandler for Slurm hetjob execution."""
         if process not in cls.valid_process:
             raise ValueError(f"{process} is not a valid process {cls.valid_process}")
-        
-        logger.info("Node %s is preparing to run a process %s", os.environ["SLURM_NODEID"], process)
+
+        logger.info(
+            "Node %s is preparing to run a process %s",
+            os.environ["SLURM_NODEID"],
+            process,
+        )
 
         instance = cls()
         instance.process = process
@@ -235,12 +239,9 @@ class MPIHandler:
 
             abandoned = not shared_inference
             node_id = int(os.environ["SLURM_NODEID"])
-            print(node_id)
             ranks_status = non_training_comm.allgather((rank, node_id, abandoned))
             abandoned_ranks = [r for r, _, a in ranks_status if a]
             non_abandoned_ranks = [(r, nid) for r, nid, a in ranks_status if not a]
-            print("aba", abandoned_ranks)
-            print("naba", non_abandoned_ranks)
 
             shared_workers = [r for r, p in shared_duties if p == "worker"]
             num_shared_workers = len(shared_workers)
@@ -249,21 +250,17 @@ class MPIHandler:
             else:
                 needed_workers = None
             needed_list = non_training_comm.allgather((node_id, needed_workers))
-            print("list", needed_list, node_id)
             all_node_ids = [
                 node_id
                 for node_id, needed_workers in needed_list
                 if needed_workers is not None
             ]
-            print(all_node_ids)
             node_ids = list(set(all_node_ids))
             node_to_needed = {}
             for node_id, needed in needed_list:
                 # If node_id not recorded yet, save it
                 if node_id not in node_to_needed and needed is not None:
                     node_to_needed[node_id] = needed
-
-            print(node_to_needed)
 
             assignments = {node_id: [] for node_id in node_ids}
             while abandoned_ranks:
@@ -345,7 +342,6 @@ class MPIHandler:
         instance.cnnrank = cnnrank
         instance.cnnsize = cnnsize
 
-        print("instance %s", instance)
         instance.cnn_training_rank = cnn_training_rank
         return instance
 
@@ -542,9 +538,9 @@ class MPIHandler:
 
         self.cnn_training_rank: int | None = None
         self._init = True
-        
+
         # Need to hold the data for non blocking operations
-        self.send_queue: Queue[BaseItem] = Queue(1)
+        self.send_queue: Queue[MessageItem] = Queue()
 
     def get_device(self) -> torch.device:
         """Return the current device."""
@@ -585,7 +581,7 @@ class MPIHandler:
                 [empty_msg, SMPI.BYTE], target, int(Tag.EXIT)
             )
             requests.append(req)
-            item = BaseItem(int(Tag.EXIT), empty_msg)
+            item = MessageItem(req, empty_msg, int(Tag.EXIT))
             self.send_queue.add(item)
         return requests
 
@@ -600,6 +596,8 @@ class MPIHandler:
 
     def finalize(self) -> None:
         """Gracefull finalize MPI Environment."""
+        while self.send_queue.poll():
+            sleep(1)
         SMPI.Finalize()
 
     # --- Send Episode Data from Observer to Training ---
@@ -613,9 +611,17 @@ class MPIHandler:
         message: np.ndarray = np.empty(
             1,
             dtype=[
-                ("states", Constants.state_tensor_batch_dtype, Constants.state_tensor_batch_shape),
+                (
+                    "states",
+                    Constants.state_tensor_batch_dtype,
+                    Constants.state_tensor_batch_shape,
+                ),
                 ("values", Constants.value_batch_dtype, Constants.value_batch_shape),
-                ("move_tensor", Constants.move_tensor_batch_dtype, Constants.move_tensor_batch_shape),
+                (
+                    "move_tensor",
+                    Constants.move_tensor_batch_dtype,
+                    Constants.move_tensor_batch_shape,
+                ),
             ],
         )
         message["states"] = np_states
@@ -624,7 +630,7 @@ class MPIHandler:
         req = self.wcomm.Isend(
             [message, SMPI.BYTE], self.TRAINING_WRANK, int(Tag.EPISODE)
         )
-        item = BaseItem(int(Tag.EPISODE), message)
+        item = MessageItem(req, message, int(Tag.EPISODE))
         self.send_queue.add(item)
 
     def probe_episode(self, source: int) -> bool:
@@ -642,14 +648,23 @@ class MPIHandler:
         message: np.ndarray = np.empty(
             1,
             dtype=[
-                ("states", Constants.state_tensor_batch_dtype, Constants.state_tensor_batch_shape),
+                (
+                    "states",
+                    Constants.state_tensor_batch_dtype,
+                    Constants.state_tensor_batch_shape,
+                ),
                 ("values", Constants.value_batch_dtype, Constants.value_batch_shape),
-                ("move_tensor", Constants.move_tensor_batch_dtype, Constants.move_tensor_batch_shape),
+                (
+                    "move_tensor",
+                    Constants.move_tensor_batch_dtype,
+                    Constants.move_tensor_batch_shape,
+                ),
             ],
         )
         req: SMPI.Request = self.wcomm.Irecv(
             [message, SMPI.BYTE], source, int(Tag.EPISODE)
         )
+        _ = self.send_queue.poll()
         return (
             req,
             torch.from_numpy(message["states"].squeeze(0)),
@@ -662,10 +677,10 @@ class MPIHandler:
         """Send data to all processes that weights are ready."""
         empty_msg = np.empty(0, dtype="b")
         for target in range(self.cnnsize):
-            self.cnncomm.Isend(
+            req = self.cnncomm.Isend(
                 [empty_msg, SMPI.BYTE], int(target), int(Tag.NOTIFY_WEIGHTS)
             )
-            item = BaseItem(int(Tag.NOTIFY_WEIGHTS), empty_msg)
+            item = MessageItem(req, empty_msg, int(Tag.NOTIFY_WEIGHTS))
             self.send_queue.add(item)
 
     def probe_weights_ready(self) -> bool:
@@ -743,7 +758,7 @@ class MPIHandler:
         req = self.ncomm.Isend(
             [message, dtype], self.INFERENCE_NRANK, int(Tag.LEAF_BATCH)
         )
-        item = BaseItem(int(Tag.LEAF_BATCH), message)
+        item = MessageItem(req, message, int(Tag.LEAF_BATCH))
         self.send_queue.add(item)
         return int(message["token"])
 
@@ -764,7 +779,7 @@ class MPIHandler:
         req: SMPI.Request = self.ncomm.Irecv(
             [message, dtype], nsource, int(Tag.LEAF_BATCH)
         )
-        req.Wait()
+        _ = self.send_queue.poll()
         return (
             req,
             nsource,
@@ -798,7 +813,7 @@ class MPIHandler:
         message["values"] = np_values
         message["move_tensors"] = np_move_tensors
         req = self.ncomm.Isend([message, dtype], ntarget, int(Tag.VALUE_BATCH))
-        item = BaseItem(int(Tag.VALUE_BATCH), message)
+        item = MessageItem(req, message, int(Tag.VALUE_BATCH))
         self.send_queue.add(item)
 
     def probe_value_batch(self) -> bool:
@@ -819,6 +834,7 @@ class MPIHandler:
         )
         message, dtype = self.token.empty_message([recv_spec_value, recv_spec_moves])
         self.ncomm.Recv([message, dtype], self.INFERENCE_NRANK, int(Tag.VALUE_BATCH))
+        _ = self.send_queue.poll()
         return (
             int(message["token"]),
             torch.from_numpy(message["values"].squeeze(0)),

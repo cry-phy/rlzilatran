@@ -34,13 +34,20 @@ class EpisodeItem(BaseItem):
     moves: torch.Tensor
 
 
+@dataclass
+class MessageItem(BaseItem):
+    """Hold Message for non blocking Sends."""
+
+    data: np.ndarray
+    flag: int
+
+
 class Queue(Generic[Item]):
     """Wrapper around Deque for only retrieving fully recieved messages."""
 
-    def __init__(self, batch_size: int) -> None:
+    def __init__(self) -> None:
         """Generate an empty Queue object."""
-        self._batch_size: int = batch_size
-        self._data: deque[Item] = deque()
+        self._data: list[Item] = []
 
     def gen_readiness(self) -> torch.Tensor:
         """Generate the readiness of the requests."""
@@ -48,7 +55,7 @@ class Queue(Generic[Item]):
 
     def add(self, item: Item) -> None:
         """Add to deque."""
-        self._data.appendleft(item)
+        self._data.append(item)
 
     def __len__(self) -> int:
         """Pass underlying deq length."""
@@ -58,7 +65,7 @@ class Queue(Generic[Item]):
         """Determine number of currently resolved requests, generates the corresponding mask."""
         return int(self.gen_readiness().sum())
 
-    def retrieve_ready(self) -> list[Item]:
+    def poll(self) -> list[Item]:
         """Retrieve and remove ready items."""
         ready_mask = self.gen_readiness()
         if not torch.any(ready_mask):
