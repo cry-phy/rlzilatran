@@ -87,5 +87,14 @@ def slurm_test(num_gpus, agents_per_observer):
     run(logger, config, handler)
 
 
+@cli.command()
+@click.option("-apo", "--agents-per-observer", default=1, type=int)
+def slurm_shared_gpu(agents_per_observer):
+    """Generate MPI Handler emulating slurm usage on local machine."""
+    logger, config = prepare()
+    handler = MPIHandler.slurm_shared_gpu(agents_per_observer)
+    run(logger, config, handler)
+
+
 if __name__ == "__main__":
     cli()

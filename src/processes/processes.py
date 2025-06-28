@@ -121,7 +121,10 @@ class TrainingProcess(MPIProcess):
                 logger.info("Recieved Episode data from %i", source)
 
         if self.queue.num_ready() >= self.episode_batch_num:
-            logger.info("Starting Training.")
+            logger.info(
+                "Starting Training with %i.",
+                self.episode_batch_num + self.dataset.replay_buffer_len(),
+            )
             self.trainer.train(self.dataloader)
             self.mpi.send_weights_ready()
             self.mpi.bcast_weights(self.cnn)
@@ -177,7 +180,7 @@ class InferenceProcess(MPIProcess):
             or self._last_inference + self._inference_timing <= current
         )
         if should_run_inference:
-            logger.info("Starting inference batch processing via Inferrer.")
+            logger.debug("Starting inference batch processing via Inferrer.")
             for source, token, moves, values in self.inferrer.infer_and_chunk(
                 self.dataloader
             ):
@@ -188,7 +191,7 @@ class InferenceProcess(MPIProcess):
                     move_tensors=moves,
                 )
             self._last_inference = current
-            logger.info("Completed inference batch and sent results.")
+            logger.debug("Completed inference batch and sent results.")
 
 
 class AgentProcess(MPIProcess):

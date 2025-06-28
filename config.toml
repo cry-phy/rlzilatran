@@ -4,8 +4,8 @@ agent1 = "MCTSAgent"
 agent2 = "MCTSAgent"
 
 [cnn]
-inference_timing = 1
+inference_timing = 0.1
 super_batch_size = 8
-leaf_batch_num = 256
-episode_batch_num = 1
-replay_buffer_size = 5000
+leaf_batch_num = 8
+episode_batch_num = 64
+replay_buffer_size = 8196

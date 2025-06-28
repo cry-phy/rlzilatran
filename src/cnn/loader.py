@@ -43,6 +43,10 @@ class EpisodeDataset(IterableDataset):
         logger.info("Using %i recorded batches.", len(self.replay_buffer))
         yield from self.replay_buffer
 
+    def replay_buffer_len(self) -> int:
+        """Return Number of entries in replay buffer."""
+        return len(self.replay_buffer)
+
 
 def collate_leaf(
     super_batch: list[LeafItem],

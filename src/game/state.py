@@ -266,7 +266,7 @@ class State:
         flag: int | torch.Tensor,
     ) -> None:
         """Make move corresponding to index."""
-        match int(flag):
+        match int(flag) + 1:
             case int(MoveFlag.STANDARD):
                 self.standard_move(x1, y1, x2, y2)
             case int(MoveFlag.CAPTURE_CALL):
