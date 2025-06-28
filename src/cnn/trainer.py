@@ -20,7 +20,7 @@ class Trainer:
         """Initialize training necessities."""
         self.model = model
         self.optimizer = optimizer
-        self.loss_fn = loss_fn
+        self.loss_fn = loss_fn.to(model.device)
         self.device = model.device
 
     @classmethod
@@ -29,6 +29,7 @@ class Trainer:
         optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
         loss_fn = nn.MSELoss()
         instance = cls(model, optimizer, loss_fn)
+        logger.debug("Created Trainer on device: %s", model.device)
         return instance
 
     def train(self, loader: DataLoader) -> None:
@@ -41,7 +42,7 @@ class Trainer:
             values = values.to(device=self.device)
 
             self.optimizer.zero_grad()
-            out_moves, out_values = self.model.forward(data)
+            out_moves, out_values = self.model(data)
             loss = self.loss_fn(out_moves, moves) + self.loss_fn(out_values, values)
             loss.backward()
             self.optimizer.step()

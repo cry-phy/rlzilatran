@@ -1,11 +1,10 @@
+from mpi import MPIHandler, SMPI
+from config import Settings, get_config
+from processes import get_process
+
 import logging
 import sys
 import click
-from mpi4py import MPI
-
-from config import Settings, get_config
-from mpi import MPIHandler
-from processes import get_process
 
 
 def setup_logging(rank: int, level: int):
@@ -36,7 +35,7 @@ def setup_logging(rank: int, level: int):
 
 def prepare() -> tuple[logging.Logger, Settings]:
     """Prepare for execution."""
-    wcomm = MPI.COMM_WORLD
+    wcomm = SMPI.COMM_WORLD
     wrank = wcomm.Get_rank()
     setup_logging(wrank, logging.INFO)
     logger = logging.getLogger(__name__)

@@ -171,6 +171,22 @@ class __Constants:
     def value_batch_shape(self) -> tuple[int]:
         return (self.BATCH_SIZE,)
 
+    @property
+    def state_tensor_batch_dtype(self) -> type[np.generic]:
+        return np.float32
+    
+    @property
+    def leaf_batch_dtype(self) -> type[np.generic]:
+        return np.float32
+
+    @property
+    def value_batch_dtype(self) -> type[np.generic]:
+        return np.float32
+
+    @property
+    def move_tensor_batch_dtype(self) -> type[np.generic]:
+        return np.float32
+
 
 __all__ = ["Constants"]
 Constants = __Constants()

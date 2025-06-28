@@ -1,33 +1,32 @@
 [general]
-hostname = "archlinux"
-mode = "prod"
-queue = "std"
-conda_env = "rlzilatran"
-cpus_per_node = 64
-gpus_per_node = 2
+hostname             = "login.leo5"
+mode                 = "prod"
+queue                = "std"
+conda_env            = "rlzilatran"
+gpus_per_node        = 2      # GPUs per node
+cpus_per_node        = 64     # CPUs per node (used for scheduling if needed)
 
 [prod]
-nodes = 5
-time = 01:00:00
+time                 = "01:00:00"
+worker_cpus_total    = 300    # total CPU worker processes across all nodes
 
 [prod.gpu]
-training_processes = 1       # optional, defaults to gpus_per_node
-inference_processes = 9      # optional, defaults to gpus_per_node
+training_processes   = 1      # defaults to gpus_per_node if omitted
+inference_processes  = 5
 
 [prod.gpu.training]
-threads_per_gpu = 4
-mem_per_process = 4000
+threads_per_gpu      = 4
+mem_per_process      = 4000
 
 [prod.gpu.inference]
-threads_per_gpu = 4
-mem_per_process = 4000
+threads_per_gpu      = 4
+mem_per_process      = 4000
 
 [prod.cpu]
-threads_per_process = 1
-agents_per_observer = 1
-mem_per_process = 1000
-hyperthreading = false
+threads_per_process  = 1
+mem_per_process      = 1000
+agents_per_observer  = 1
 
 [dev]
-num_processes = 4
-time = 00:01:00
+time                 = "00:01:00"
+worker_cpus_total    = 4      # smaller total for dev

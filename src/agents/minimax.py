@@ -136,7 +136,6 @@ class MinimaxAgent(BaseAgent):
             raise ValueError("Cannot generate a move when no valid moves exist.")
         shifted_scores = valid_scores - valid_scores.min()
         if shifted_scores.sum() <= 1e-9:
-            logger.debug("All moves have the same advantage. Picking at random.")
             probabilities[valid_mask] = 1.0
         else:
             probabilities[valid_mask] = shifted_scores

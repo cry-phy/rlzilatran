@@ -14,6 +14,8 @@ class OBSConfig(BaseModel):
 class CNNConfig(BaseModel):
     """CNN config using Pydantic."""
 
+    inference_timing: float = 1
+    super_batch_size: int = 8
     leaf_batch_num: int = 16
     episode_batch_num: int = 16
     replay_buffer_size: int = 500000

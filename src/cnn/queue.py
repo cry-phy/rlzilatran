@@ -1,10 +1,13 @@
 from dataclasses import dataclass
 from typing import Generic, Iterator, TypeVar
-from mpi4py.MPI import Request
+from mpi import SMPI
 from collections import deque
 import torch
+import numpy as np
 
 Item = TypeVar("Item", bound="BaseItem")
+
+Request = SMPI.Request
 
 
 @dataclass
@@ -20,7 +23,7 @@ class LeafItem(BaseItem):
     """Leaf Item."""
 
     source: int
-    token: int | torch.Tensor
+    token: np.ndarray
 
 
 @dataclass
@@ -31,21 +34,28 @@ class EpisodeItem(BaseItem):
     moves: torch.Tensor
 
 
+@dataclass
+class MessageItem(BaseItem):
+    """Hold Message for non blocking Sends."""
+
+    data: np.ndarray
+    flag: int
+
+
 class Queue(Generic[Item]):
     """Wrapper around Deque for only retrieving fully recieved messages."""
 
-    def __init__(self, batch_size: int) -> None:
+    def __init__(self) -> None:
         """Generate an empty Queue object."""
-        self._batch_size: int = batch_size
-        self._data: deque[Item] = deque()
+        self._data: list[Item] = []
 
     def gen_readiness(self) -> torch.Tensor:
         """Generate the readiness of the requests."""
-        return torch.tensor([item.request.Get_status() for item in self._data])
+        return torch.tensor([item.request.Test() for item in self._data])
 
     def add(self, item: Item) -> None:
         """Add to deque."""
-        self._data.appendleft(item)
+        self._data.append(item)
 
     def __len__(self) -> int:
         """Pass underlying deq length."""
@@ -55,7 +65,7 @@ class Queue(Generic[Item]):
         """Determine number of currently resolved requests, generates the corresponding mask."""
         return int(self.gen_readiness().sum())
 
-    def retrieve_ready(self) -> list[Item]:
+    def poll(self) -> list[Item]:
         """Retrieve and remove ready items."""
         ready_mask = self.gen_readiness()
         if not torch.any(ready_mask):
