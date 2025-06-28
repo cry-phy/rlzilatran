@@ -2,6 +2,7 @@
 GUI = false
 agent1 = "MCTSAgent"
 agent2 = "MCTSAgent"
+random_prep_moves = 3
 
 [cnn]
 inference_timing = 0.1

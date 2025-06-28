@@ -357,7 +357,7 @@ class MCTSAgent(BaseAgent):
         """Initialize MCTS Agent."""
         super().__init__(game)
         self.tree = Tree(self._game, 1.5)
-        self.search_time = 2
+        self.search_time = 10
         self.open_tasks = {}
 
     def make_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> None:
@@ -428,7 +428,7 @@ class MCTSAgent(BaseAgent):
         while search_ongoing:
             if monotonic() > start_time + self.search_time:
                 search_ongoing = bool(self.open_tasks)
-            elif len(self.open_tasks) <= 4:
+            elif len(self.open_tasks) <= 8:
                 new_nodes = self._gather_new()
                 leaf_batch = self._collate_inputs(new_nodes)
                 send_token = self.mpi.send_leaf_batch(leaf_batch)

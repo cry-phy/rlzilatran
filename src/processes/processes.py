@@ -38,28 +38,13 @@ def get_process(config: Settings, handler: MPIHandler) -> MPIProcess:
         return TrainingProcess(config, handler)
     elif handler.is_inference():
         return InferenceProcess(config, handler)
-    game: Game = Game.new_game()
-    agent_cls1: type[BaseAgent] = config.agent_class_dict[config.obs.agent1]
-    agent_cls2: type[BaseAgent] = config.agent_class_dict[config.obs.agent2]
     if handler.orank == handler.OBSERVER_ORANK:
         if config.obs.GUI:
-            return UIObserverProcess(
-                game=game,
-                agent_cls1=agent_cls1,
-                agent_cls2=agent_cls2,
-            )
+            return UIObserverProcess(config)
         else:
-            return ObserverProcess(
-                game=game,
-                agent_cls1=agent_cls1,
-                agent_cls2=agent_cls2,
-            )
+            return ObserverProcess(config)
     else:
-        return AgentProcess(
-            game=game,
-            agent_cls1=agent_cls1,
-            agent_cls2=agent_cls2,
-        )
+        return AgentProcess(config)
 
 
 class MPIProcess:
@@ -197,21 +182,21 @@ class InferenceProcess(MPIProcess):
 class AgentProcess(MPIProcess):
     """Initialize Process acting only as Observer."""
 
-    def __init__(
-        self,
-        game: Game,
-        agent_cls1: type[BaseAgent],
-        agent_cls2: type[BaseAgent],
-    ) -> None:
+    def __init__(self, config: Settings) -> None:
         """Set Agent environment and recieve agents and Game."""
         super().__init__()
+        game: Game = Game.new_game()
+        agent_cls1: type[BaseAgent] = config.agent_class_dict[config.obs.agent1]
+        agent_cls2: type[BaseAgent] = config.agent_class_dict[config.obs.agent2]
         self.observer = None
         self.game = game
         self.obs = BaseObserver.any_vs_any(game, agent_cls1, agent_cls2)
+        self.random_prep_moves = config.obs.random_prep_moves
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
         while True:
+            self.obs.make_random_moves(self.random_prep_moves)
             while not self.game.game_over():
                 self.main_step()
             self.obs.reset()
@@ -224,6 +209,7 @@ class AgentProcess(MPIProcess):
         _ = current_agent.reduce_move_tensors()
         _ = current_agent.reduce_values()
         move = None
+        self.num_moves = 0
         logger.debug("Awaiting Move")
         bcast_move = current_agent.bcast_move(move)
         current_agent.make_move(*bcast_move)
@@ -236,19 +222,19 @@ class ObserverProcess(MPIProcess):
     This is part of the ocomm and therefore also runs Agent search.
     """
 
-    def __init__(
-        self,
-        game: Game,
-        agent_cls1: type[BaseAgent],
-        agent_cls2: type[BaseAgent],
-    ) -> None:
+    def __init__(self, config: Settings) -> None:
         """Set up observer and distribute game anda agents."""
         super().__init__()
+        game: Game = Game.new_game()
+        agent_cls1: type[BaseAgent] = config.agent_class_dict[config.obs.agent1]
+        agent_cls2: type[BaseAgent] = config.agent_class_dict[config.obs.agent2]
         self.obs = BaseObserver.any_vs_any(game, agent_cls1, agent_cls2)
+        self.random_prep_moves = config.obs.random_prep_moves
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
         while True:
+            self.obs.make_random_moves(self.random_prep_moves)
             while not self.obs.game.game_over():
                 self.main_step()
                 self._send_episode()
@@ -295,21 +281,19 @@ class UIObserverProcess(ObserverProcess):
     !!! Do not run on Cluster since main loop is not properly secured against crashes.
     """
 
-    def __init__(
-        self,
-        game: Game,
-        agent_cls1: type[BaseAgent],
-        agent_cls2: type[BaseAgent],
-    ) -> None:
+    def __init__(self, config: Settings) -> None:
         """Set up observer and distribute game and agents."""
         logger.info("Initialized %s.", self.__class__.__name__)
+        game: Game = Game.new_game()
+        agent_cls1: type[BaseAgent] = config.agent_class_dict[config.obs.agent1]
+        agent_cls2: type[BaseAgent] = config.agent_class_dict[config.obs.agent2]
         self.obs: UIObserver = cast(
             UIObserver, UIObserver.any_vs_any(game, agent_cls1, agent_cls2)
         )
-        self.num_moves = 0
 
     def run(self) -> None:
         """Loop the control flow indefenitely."""
+        self.obs.make_random_moves(self.random_prep_moves)
         self.main_step()
         self.obs.root.mainloop()
 
@@ -338,4 +322,5 @@ class UIObserverProcess(ObserverProcess):
         else:
             logger.info("Game over. Total moves: %i", self.num_moves)
             self.obs.reset()
+            self.obs.make_random_moves(self.random_prep_moves)
             self.obs.wait(self.main_step)
