@@ -1,40 +1,19 @@
 #!/bin/bash
 
-
-{%- if test_only %}
-#SBATCH --test-only
-{%- endif %}
-
 # General Options Block
-#SBATCH --job-name={{ jobname_prefix }}_{{ jobname }}
+#SBATCH --job-name={{ jobname }}
 #SBATCH --output={{ jobname }}/{{ jobname }}.log
 #SBATCH --time={{ time }}
 #SBATCH --hint=nomultithread
 #SBATCH --mail-user=christof.stein@student.uibk.ac.at
 #SBATCH --mail-type=ALL
 
-# Training GPU processes
-#SBATCH --ntasks={{ gpu_train_proc }}
-#SBATCH --gpus-per-task=1
-#SBATCH --cpus-per-task={{ gpu_threads_t }}
-#SBATCH --mem-per-cpu={{ gpu_mem_t }}MB
+#SBATCH --ntasks={{ gpu_train_proc + gpu_inference_proc + cpu_processes }}  # Total number of tasks
+#SBATCH --cpus-per-task=1
+#SBATCH --mem-per-cpu=500MB
 
-# Inference GPU processes
-#SBATCH hetjob
-#SBATCH --ntasks={{ gpu_inference_proc }}
-#SBATCH --gpus-per-task=1
-#SBATCH --cpus-per-task={{ gpu_threads_i }}
-#SBATCH --mem-per-cpu={{ gpu_mem_i }}MB
-
-# CPU processes
-#SBATCH hetjob
-#SBATCH --ntasks={{ cpu_processes }}
-#SBATCH --cpus-per-task={{ cpu_threads }}
-#SBATCH --mem-per-cpu={{ cpu_memory }}MB
-
-{%- if queue %}
-#SBATCH --partition={{ queue }}
-{%- endif %}
+# Reserve GPUs
+#SBATCH --gpus={{ gpu_train_proc + gpu_inference_proc }}  # Ensure you have enough GPUs for the tasks
 
 # --- Conda env setup ---
 module load Anaconda3/2023.10/miniconda-base-2023.10
@@ -42,19 +21,5 @@ eval "$($UIBK_CONDA_DIR/bin/conda shell.bash hook)"
 conda activate {{ conda_env }}
 echo "Using Python: $(which python)"
 
-# --- Call slurm entry point ---
-srun --mpi=pmi2 --export=ALL \
-       --ntasks={{ gpu_train_proc }} \
-       --gpus-per-task=1 \
-       --cpus-per-task={{ gpu_threads_t }} \
-       --mem-per-cpu={{ gpu_mem_t }}MB \
-    python src/main.py slurm --process=training \
-  :    --ntasks={{ gpu_inference_proc }} \
-       --gpus-per-task=1 \
-       --cpus-per-task={{ gpu_threads_i }} \
-       --mem-per-cpu={{ gpu_mem_i }}MB \
-     python src/main.py slurm --process=inference \
-  :    --ntasks={{ cpu_processes }} \
-       --cpus-per-task={{ cpu_threads }} \
-       --mem-per-cpu={{ cpu_memory }}MB \
-     python src/main.py slurm --process=worker --agents-per-observer={{ agents_per_observer }}
+# --- Multi-program execution ---
+srun --mpi=pmi2 --export=ALL --multi-prog {{ jobname }}/multi_prog.conf

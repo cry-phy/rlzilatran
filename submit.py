@@ -4,6 +4,7 @@ import toml
 import click
 import socket
 from jinja2 import Template
+import subprocess
 
 
 def check_hostname(cfg):
@@ -89,46 +90,77 @@ def main(
         if not os.path.exists(os.path.join(jobname, fn)):
             shutil.copy(fn, jobname)
 
-    # render templates
+    # generate the multi_prog.conf dynamically
+    generate_multi_prog_conf(jobname, gpu_train, gpu_inf, cpu_procs)
+
+    # render the SLURM script from template
+    render_slurm_script(jobname, cfg)
+
+    # submit job unless prepare
+    if not prepare:
+        submit_job(jobname)
+    else:
+        click.echo(f"--prepare: scripts are in {jobname}/")
+
+
+def generate_multi_prog_conf(jobname, gpu_train, gpu_inf, cpu_procs):
+    """Generate the multi_prog.conf file dynamically."""
+    multi_prog_file = os.path.join(jobname, "multi_prog.conf")
+    
+    # Write the tasks for training, inference, and worker
+    with open(multi_prog_file, "w") as f:
+        # Task 0: Training process
+        f.write("0 python src/main.py slurm-shared-gpu -apo=1\n")
+        
+        # Task 1 to 2: Inference processes
+        for i in range(1, gpu_inf + 1):
+            f.write(f"{i} python src/main.py slurm-shared-gpu -apo=1\n")
+        
+        # Task 3 to N: CPU worker processes
+        task_id = gpu_inf + 1
+        for i in range(task_id, task_id + cpu_procs):
+            f.write(f"{i} python src/main.py  slurm-shared-gpu -apo=1\n")
+
+    return multi_prog_file
+
+
+def render_slurm_script(jobname, cfg):
+    """Render the SLURM job script using Jinja2."""
+    # Load SLURM template
     tmpl = Template(open("sbatch_template.j2").read())
+
+    # Define context for the template
     ctx = {
-        "jobname_prefix": "rlz",
         "jobname": jobname,
-        "test_only": False,
         "time": cfg["prod"]["time"],
         "queue": cfg["general"]["queue"],
         "conda_env": cfg["general"]["conda_env"],
-        "gpu_train_proc": gpu_train,
-        "gpu_threads_t": gt,
-        "gpu_mem_t": mt,
-        "gpu_inference_proc": gpu_inf,
-        "gpu_threads_i": gi,
-        "gpu_mem_i": mi,
-        "cpu_processes": cpu_procs,
+        "gpu_train_proc": cfg["prod"]["gpu"]["training_processes"],
+        "gpu_threads_t": cfg["prod"]["gpu"]["training"]["threads_per_gpu"],
+        "gpu_mem_t": cfg["prod"]["gpu"]["training"]["mem_per_process"],
+        "gpu_inference_proc": cfg["prod"]["gpu"]["inference_processes"],
+        "gpu_threads_i": cfg["prod"]["gpu"]["inference"]["threads_per_gpu"],
+        "gpu_mem_i": cfg["prod"]["gpu"]["inference"]["mem_per_process"],
+        "cpu_processes": cfg["prod"]["worker_cpus_total"],
         "cpu_threads": cfg["prod"]["cpu"]["threads_per_process"],
         "cpu_memory": cfg["prod"]["cpu"]["mem_per_process"],
         "agents_per_observer": cfg["prod"]["cpu"]["agents_per_observer"],
     }
 
-    for tag, flag in [("run", False), ("estimate", True)]:
-        ctx["test_only"] = flag
-        out = tmpl.render(**ctx)
-        path = os.path.join(jobname, f"{tag}.{jobname}.slurm")
-        with open(path, "w") as f:
-            f.write(out)
-        click.echo(f"Wrote {path}")
+    # Render the SLURM script
+    out = tmpl.render(**ctx)
 
-    # submit unless prepare
-    if not prepare:
-        click.echo("Estimating time…")
-        os.system(f"sbatch {jobname}/estimate.{jobname}.slurm")
-        click.echo("Submitting job…")
-        os.system(f"sbatch {jobname}/run.{jobname}.slurm")
-    else:
-        click.echo(f"--prepare: scripts are in {jobname}/")
-        click.echo("Estimating time…")
-        os.system(f"sbatch {jobname}/estimate.{jobname}.slurm")
+    # Write the rendered script to the job directory
+    with open(os.path.join(jobname, "submit.slurm"), "w") as f:
+        f.write(out)
+
+
+def submit_job(jobname):
+    """Submit the SLURM job."""
+    slurm_script = os.path.join(jobname, "submit.slurm")
+    subprocess.run(f"sbatch {slurm_script}", shell=True)
 
 
 if __name__ == "__main__":
     main()
+

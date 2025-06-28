@@ -167,7 +167,9 @@ class Leaf(Node):
 
     def _adjust_child(self, child_index: torch.Tensor) -> None:
         """Adjust child specific values."""
-        child_node = cast(Leaf, self.children[child_index])
+        child_node = self.children[child_index]
+        if child_node is None:
+            return 
         leaf_value = -child_node.mean_value
         move_indices = torch.unravel_index(child_index, self._move_tensor.shape)
         self._child_values[move_indices] += leaf_value

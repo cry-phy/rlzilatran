@@ -35,8 +35,10 @@ def get_process(config: Settings, handler: MPIHandler) -> MPIProcess:
     logger.debug("Getting processes.")
 
     if handler.is_training():
+        print("attempting training")
         return TrainingProcess(config, handler)
     elif handler.is_inference():
+        print("attempting inference")
         return InferenceProcess(config, handler)
     if handler.orank == handler.OBSERVER_ORANK:
         if config.obs.GUI:
