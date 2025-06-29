@@ -1,0 +1,73 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Linux x86_64; rv:139.0) Gecko/20100101 Firefox/139.0" border="50" scale="3" compressed="false" locked="false" version="27.1.6">
+  <diagram name="Blank" id="YmL12bMKpDGza6XwsDPr">
+    <mxGraphModel dx="1633" dy="791" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" background="none" math="1" shadow="0">
+      <root>
+        <mxCell id="X5NqExCQtvZxIxQ7pmgY-0" />
+        <mxCell id="1" parent="X5NqExCQtvZxIxQ7pmgY-0" />
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-1" value="      Project Setup" style="shape=step;perimeter=stepPerimeter;strokeColor=#82b366;fontFamily=Helvetica;fontSize=9;fillColor=#d5e8d4;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="233" y="158" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-5" value="       State and Game" style="shape=step;perimeter=stepPerimeter;strokeColor=#82b366;fontFamily=Helvetica;fontSize=9;fillColor=#d5e8d4;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="322" y="158" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-6" value="Visualization" style="shape=step;perimeter=stepPerimeter;strokeColor=#82b366;fontFamily=Helvetica;fontSize=9;fillColor=#d5e8d4;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="410" y="158" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-7" value="MPI layout" style="shape=step;perimeter=stepPerimeter;strokeColor=#82b366;fontFamily=Helvetica;fontSize=9;fillColor=#d5e8d4;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="586" y="158" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-8" value="     Minimax Agent" style="shape=step;perimeter=stepPerimeter;strokeColor=#82b366;fontFamily=Helvetica;fontSize=9;fillColor=#d5e8d4;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="498" y="158" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-9" value="MPI Refactor" style="shape=step;perimeter=stepPerimeter;strokeColor=#82b366;fontFamily=Helvetica;fontSize=9;fillColor=#d5e8d4;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="233" y="233" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-10" value="Modules&#xa;Refactor" style="shape=step;perimeter=stepPerimeter;strokeColor=#82b366;fontFamily=Helvetica;fontSize=9;fillColor=#d5e8d4;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];labelBackgroundColor=none;" parent="1" vertex="1">
+          <mxGeometry x="322" y="233" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-11" value="Data Loader" style="shape=step;perimeter=stepPerimeter;strokeColor=#82b366;fontFamily=Helvetica;fontSize=9;fillColor=#d5e8d4;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="410" y="233" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-13" value="Test CNN" style="shape=step;perimeter=stepPerimeter;strokeColor=#82b366;fontFamily=Helvetica;fontSize=9;fillColor=#d5e8d4;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="498" y="233" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-15" value="Full CNN" style="shape=step;perimeter=stepPerimeter;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=9;fillColor=#fff2cc;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="410" y="306" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-16" value="Cluster Test" style="shape=step;perimeter=stepPerimeter;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=9;fillColor=#fff2cc;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="322" y="306" width="97" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-17" value="Slurm Setup" style="shape=step;perimeter=stepPerimeter;strokeColor=#82b366;fontFamily=Helvetica;fontSize=9;fillColor=#d5e8d4;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="233" y="306" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-18" value="     MCTS Agent" style="shape=step;perimeter=stepPerimeter;strokeColor=#82b366;fontFamily=Helvetica;fontSize=9;fillColor=#d5e8d4;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="586" y="233" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-19" value="    New Execution&#xa;    Strategy" style="shape=step;perimeter=stepPerimeter;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;fillColor=#dae8fc;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="499" y="306" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-20" value="Optimize" style="shape=step;perimeter=stepPerimeter;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;fillColor=#dae8fc;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="587" y="306" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n5s89Zv54LHCiiNo6JsX-21" value="" style="shape=step;perimeter=stepPerimeter;strokeColor=#b85450;fontFamily=Helvetica;fontSize=9;fillColor=#f8cecc;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="401" y="306" width="21" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="4Dm44O0NyzaY3bvOXZjX-4" value="Cluster Run" style="shape=step;perimeter=stepPerimeter;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;fillColor=#dae8fc;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="410" y="381" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="4Dm44O0NyzaY3bvOXZjX-5" value="Web Interface" style="shape=step;perimeter=stepPerimeter;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;fillColor=#dae8fc;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="322" y="381" width="99" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="4Dm44O0NyzaY3bvOXZjX-6" value="Cluster Run" style="shape=step;perimeter=stepPerimeter;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;fillColor=#dae8fc;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="233" y="381" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="4Dm44O0NyzaY3bvOXZjX-8" value="Interface" style="shape=step;perimeter=stepPerimeter;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;fillColor=#dae8fc;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="587" y="381" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="4Dm44O0NyzaY3bvOXZjX-14" value="???" style="shape=step;perimeter=stepPerimeter;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;fillColor=#dae8fc;fixedSize=1;size=17;fontStyle=1;strokeWidth=2;spacingTop=0;points=[];" parent="1" vertex="1">
+          <mxGeometry x="499" y="381" width="99" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
