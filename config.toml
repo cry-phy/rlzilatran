@@ -8,5 +8,5 @@ random_prep_moves = 3
 inference_timing = 0.1
 super_batch_size = 8
 leaf_batch_num = 8
-episode_batch_num = 64
+episode_batch_num = 1
 replay_buffer_size = 8196
