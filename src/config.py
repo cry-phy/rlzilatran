@@ -9,6 +9,7 @@ class OBSConfig(BaseModel):
     GUI: bool = False
     agent1: str
     agent2: str
+    random_prep_moves: int = 0
 
 
 class CNNConfig(BaseModel):

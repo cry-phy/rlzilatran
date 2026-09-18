@@ -1,13 +1,18 @@
 from __future__ import annotations
+from mpi import SMPI
 import os
+import pynvml
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from cnn import CNN
 
 from game.utils.constants import Constants
-from cnn import CNN
 from cnn.queue import MessageItem, Queue
 
 from enum import IntEnum, auto
 from functools import wraps
-from mpi import SMPI
 from time import sleep, time
 import numpy as np
 import traceback
@@ -345,6 +350,102 @@ class MPIHandler:
         instance.cnn_training_rank = cnn_training_rank
         return instance
 
+    @classmethod
+    @gracefull_error
+    def slurm_shared_gpu(cls, agents_per_observer: int) -> MPIHandler:
+        """Yet another way to start the mpi handler.
+
+        Used when the GPUS are non uniquely assigned to all processes via a 1 to n mapping.
+        """
+
+        def cuda_index_from_uuid(target_uuid: str) -> int:
+            pynvml.nvmlInit()
+            device_count = pynvml.nvmlDeviceGetCount()
+
+            for i in range(device_count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                uuid = pynvml.nvmlDeviceGetUUID(handle)
+                if uuid == target_uuid:
+                    return i
+            raise RuntimeError("Cannot find Cuda device for this rank.")
+
+        instance = cls()
+        pynvml.nvmlInit()
+        local_index = int(os.environ.get("CUDA_VISIBLE_DEVICES", "0").split(",")[0])
+        handle = pynvml.nvmlDeviceGetHandleByIndex(local_index)
+        gpu_uuid = pynvml.nvmlDeviceGetUUID(handle)
+        all_uuids = sorted(set(instance.wcomm.allgather(gpu_uuid)))
+        if len(all_uuids) > 1:
+            training_uuid = all_uuids.pop()
+        else:
+            training_uuid = all_uuids[0]
+        on_training_gpu = instance.wcomm.allgather(
+            (instance.wrank, gpu_uuid == training_uuid)
+        )
+        abandoned_ranks = [r for r, is_on in on_training_gpu if is_on]
+        instance.TRAINING_WRANK = abandoned_ranks.pop()
+        abandoned_assignments = {
+            r: i % len(all_uuids) for i, r in enumerate(abandoned_ranks)
+        }
+        inference_color_mappings = {uuid: i for i, uuid in enumerate(all_uuids)}
+        if instance.wrank == instance.TRAINING_WRANK:
+            color = SMPI.UNDEFINED
+        elif gpu_uuid != training_uuid:
+            color = inference_color_mappings[gpu_uuid]
+        else:
+            color = abandoned_assignments[instance.wrank]
+        instance.ncomm = instance.wcomm.Split(color, instance.wrank)
+        instance.INFERENCE_NRANK = 0
+        if instance.ncomm != SMPI.COMM_NULL:
+            instance.nrank = instance.ncomm.Get_rank()
+            instance.nsize = instance.ncomm.Get_size()
+            color = SMPI.UNDEFINED if instance.INFERENCE_NRANK else 0
+            non_inference_comm = instance.ncomm.Split(color, instance.nrank)
+            if non_inference_comm != SMPI.COMM_NULL:
+                non_inference_size = non_inference_comm.Get_size()
+                non_inference_rank = non_inference_comm.Get_rank()
+                number_observers = non_inference_size // agents_per_observer
+                bp_rank = non_inference_size % number_observers
+                observer_color = (
+                    non_inference_rank // (agents_per_observer + 1)
+                    if non_inference_rank <= bp_rank
+                    else non_inference_rank // agents_per_observer
+                )
+                instance.ocomm = non_inference_comm.Split(
+                    observer_color, non_inference_rank
+                )
+                instance.orank = instance.ocomm.Get_rank()
+                instance.osize = instance.ocomm.Get_size()
+
+            if instance.nrank == instance.INFERENCE_NRANK:
+                print("inference initialization")
+                instance.process = "inference"
+                device_index = cuda_index_from_uuid(gpu_uuid)
+                instance.device = torch.device(f"cuda:{device_index}")
+            else:
+                instance.process = "worker"
+
+        if instance.wrank == instance.TRAINING_WRANK:
+            print("trainign initialization")
+            instance.process = "training"
+            device_index = cuda_index_from_uuid(training_uuid)
+            instance.device = torch.device(f"cuda:{device_index}")
+            print("trainign initialization")
+
+        cnn_wranks = instance._get_cnn_wranks()
+        print(cnn_wranks)
+        cnncomm, cnnrank, cnnsize, cnn_training_rank = instance._split_cnn(
+            instance.wcomm, cnn_wranks
+        )
+        if instance.wrank in cnn_wranks:
+            print("post_split", instance.process)
+        instance.cnncomm = cnncomm
+        instance.cnnrank = cnnrank
+        instance.cnnsize = cnnsize
+
+        instance.cnn_training_rank = cnn_training_rank
+        return instance
+
     def _avail_num_gpus(self, num_gpus: int) -> int:
         """Validate and calculate the number of available gpus for this process."""
         if self.wrank == self.TRAINING_WRANK:
@@ -449,6 +550,7 @@ class MPIHandler:
         """Weight sending comm setup."""
         cnn_color = SMPI.UNDEFINED if self.wrank not in cnn_wranks else 0
         comm = wcomm.Split(cnn_color, self.wrank)
+        print(1)
         if comm != SMPI.COMM_NULL:
             rank = comm.Get_rank()
             size = comm.Get_size()
@@ -460,6 +562,8 @@ class MPIHandler:
             rank = None
             size = None
             cnn_training_rank = None
+            cnn_training_rank = wcomm.bcast(rank, self.TRAINING_WRANK)
+        print(10)
         return comm, rank, size, cnn_training_rank
 
     @classmethod
@@ -694,7 +798,7 @@ class MPIHandler:
 
     def _bcast_size(self, size: int) -> int:
         """Blocking size distribution to allow for non blocking."""
-        size = self.cnncomm.bcast(size, self.TRAINING_WRANK)
+        size = self.cnncomm.bcast(size, self.cnn_training_rank)
         return size
 
     def bcast_weights(self, model: CNN) -> None:

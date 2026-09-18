@@ -8,11 +8,11 @@ cpus_per_node        = 64     # CPUs per node (used for scheduling if needed)
 
 [prod]
 time                 = "01:00:00"
-worker_cpus_total    = 300    # total CPU worker processes across all nodes
+worker_cpus_total    = 640    # total CPU worker processes across all nodes
 
 [prod.gpu]
 training_processes   = 1      # defaults to gpus_per_node if omitted
-inference_processes  = 5
+inference_processes  = 4
 
 [prod.gpu.training]
 threads_per_gpu      = 4

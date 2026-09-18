@@ -1,10 +1,11 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+
 if TYPE_CHECKING:
     from agents import BaseAgent
 from game import Game
-from game.utils import Constants
+from game.utils import Constants, Translator
 from mpi import MPIHandler
 import torch
 
@@ -77,6 +78,15 @@ class BaseObserver:
         agent1.player = True
         agent2.player = not agent1.player
         self.agents = (agent1, agent2)
+
+    def make_random_moves(self, num: int) -> None:
+        """Make random moves."""
+        for _ in range(num):
+            moves = list(zip(*self.game.all_moves(), strict=True))
+            i = torch.randint(0, len(moves), (1,))
+            x1, y1, index = moves[i]
+            x2, y2, flag = Translator.move_from_index(index)
+            self.game.make_move(x1, y1, x2, y2, flag)
 
     def send_episode(self) -> None:
         """Send batch of move data to Training."""

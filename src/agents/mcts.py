@@ -26,6 +26,7 @@ class Node:
         self.parent: Node = self
         self._parent_child_index: torch.Tensor = child_index
         self.children: list[Node | None] = []
+        self.is_set: bool = False
 
     @property
     def visit_count(self) -> int:
@@ -121,6 +122,7 @@ class Leaf(Node):
         self._child_values = self._game.full_move_tensor(0)
         self._child_visit_counts = self._game.full_move_tensor(1e-5)
         self._child_puct_factors = self._game.full_move_tensor(self.puct_factor)
+        self.is_set = True
 
     def _choose_child(self) -> tuple[Node | None, torch.Tensor]:
         """Select child node."""
@@ -165,7 +167,9 @@ class Leaf(Node):
 
     def _adjust_child(self, child_index: torch.Tensor) -> None:
         """Adjust child specific values."""
-        child_node = cast(Leaf, self.children[child_index])
+        child_node = self.children[child_index]
+        if child_node is None:
+            return 
         leaf_value = -child_node.mean_value
         move_indices = torch.unravel_index(child_index, self._move_tensor.shape)
         self._child_values[move_indices] += leaf_value
@@ -179,20 +183,19 @@ class Leaf(Node):
         self,
         child_index: torch.Tensor,
     ) -> Node:
-        """Propagate Backpropagation until root node is reached."""
+        """Backpropagate until root node is reached."""
         # Return negative value here to account for opponent
         self._visit_count += 1
-        if not self.is_outer():
+        if not self.is_outer() and self.is_set:
             self._adjust_child(child_index)
         node = self.parent.backpropagate(self.parent_child_index)
         return node
 
     def child_from_move(self, x1: int, y1: int, x2: int, y2: int, flag: int) -> Node:
         """Get Child from move identifier."""
-        # TODO to be tested
         _, d1, d2 = self._move_tensor.shape
         if flag != 0:
-            index = 33
+            index = 32
         else:
             index = x2 + y2 * d1
         child_index = x1 * (d1 * d2) + y1 * d2 + index
@@ -374,10 +377,29 @@ class MCTSAgent(BaseAgent):
         int | torch.Tensor,
     ]:
         """Generate a move for the current game."""
-        flat_index = torch.argmax(move_tensor)
-        x1, y1, index = torch.unravel_index(flat_index, move_tensor.shape)
-        x2, y2, flag = self._game.move_from_index(index)
+        valid_mask = self._game.move_mask()
+        probabilities = torch.zeros_like(move_tensor, dtype=torch.float32)
+        valid_scores = move_tensor[valid_mask]
+        if valid_scores.numel() == 0:
+            raise ValueError("Cannot generate a move when no valid moves exist.")
+        shifted_scores = valid_scores - valid_scores.min()
+        if shifted_scores.sum() <= 1e-9:
+            probabilities[valid_mask] = 1.0
+        else:
+            probabilities[valid_mask] = shifted_scores
+        probabilities_flat = probabilities.flatten()
+        probabilities_flat /= probabilities_flat.sum() + 1e-9
+        move_flat_index = torch.multinomial(probabilities_flat, 1)
+        move_indices = torch.unravel_index(move_flat_index, move_tensor.shape)
+        logger.debug("Suggesting move: %s", move_indices)
+        x1: torch.Tensor = move_indices[0]
+        y1: torch.Tensor = move_indices[1]
+        x2, y2, flag = self._game.move_from_index(move_indices[2])
         return x1, y1, x2, y2, flag
+        # flat_index = torch.argmax(move_tensor)
+        # x1, y1, index = torch.unravel_index(flat_index, move_tensor.shape)
+        # x2, y2, flag = self._game.move_from_index(index)
+        # return x1, y1, x2, y2, flag
 
     def _gather_new(self) -> list[Node]:
         """Perform rollouts and gather the resulting unevaluated nodes."""
@@ -398,7 +420,7 @@ class MCTSAgent(BaseAgent):
         """Apply the to the nodes and backpropagate."""
         for i, node in enumerate(nodes):
             node.set(move_tensors[i], values[i])
-            node.backpropagate(torch.empty(0))
+            node.backpropagate(torch.tensor([1]))
 
     def generate_move_tensor(self) -> None:
         """Generate move tensor and value."""
@@ -408,7 +430,7 @@ class MCTSAgent(BaseAgent):
         while search_ongoing:
             if monotonic() > start_time + self.search_time:
                 search_ongoing = bool(self.open_tasks)
-            else:
+            elif len(self.open_tasks) <= 8:
                 new_nodes = self._gather_new()
                 leaf_batch = self._collate_inputs(new_nodes)
                 send_token = self.mpi.send_leaf_batch(leaf_batch)
@@ -427,3 +449,4 @@ class MCTSAgent(BaseAgent):
             eval_count * Constants.BATCH_SIZE,
             monotonic() - start_time,
         )
+        self.tree.full_dot(f"temp/tree_{self.mpi.wrank}_{eval_count}.dot")
