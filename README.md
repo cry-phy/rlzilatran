@@ -1,5 +1,24 @@
 # RLZilatran
 
+## The Game
+
+The goal of this project is to apply Reinforcement Learning approaches to [Zilatran Chess](https://www.zilatranchess.com/gamehomepage.html) to generate a program able to play the game.
+
+Zilatran Chess is a grid based board game where the objective is to not run out of pieces to play with while attempting to capture pieces of more than half of the total value available on the board.
+
+The game is played on a 4x8 board where each player controls all pieces on one 4x4 side of the board. This implies that moving a piece to the other/opponents side of the board relieves the players control over said piece.
+
+Each player starts with 3 Privates $P$, 2 Sergeants $S$ and 3 Officers $O$ with capture value 1, 2 and 3 respectively. The starting position is shown below on the far left. Each of the three different pieces has different move possibilites as shown in the 3 rightmost images:
+
+<img src="resources/Katruji-Board.png" height="250">
+<img src="resources/katruji-pieces-and-moves.png" height="250">
+
+[Source](https://www.zilatranchess.com/gamehomepage.html)
+
+A capture of a piece needs to happen on the opponents side of the board, meaning a piece needs to switch control to the opponent breaking common conceptions gathered from playing chess, making the game quite unique in playstyle.
+
+The approach mimics the principles of [AlphaZero](https://arxiv.org/abs/1712.01815): a CNN provides policy and value estimates, trained through self-play using Monte Carlo Tree Search. See [Summary](resources/Summary.md) for the full description of the network, the search and the HPC setup.
+
 ## Slurm Usage
 
 To get the project running using the Slurm Workload manager and conda first ensure that poetry does not currently have a venv (In case remove it.). Then create a conda environment (default is *rlzilatran*) using ac compatible python version. Then simply let poetry install to said env.
