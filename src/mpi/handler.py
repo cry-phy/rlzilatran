@@ -418,7 +418,6 @@ class MPIHandler:
                 instance.osize = instance.ocomm.Get_size()
 
             if instance.nrank == instance.INFERENCE_NRANK:
-                print("inference initialization")
                 instance.process = "inference"
                 device_index = cuda_index_from_uuid(gpu_uuid)
                 instance.device = torch.device(f"cuda:{device_index}")
@@ -426,19 +425,14 @@ class MPIHandler:
                 instance.process = "worker"
 
         if instance.wrank == instance.TRAINING_WRANK:
-            print("trainign initialization")
             instance.process = "training"
             device_index = cuda_index_from_uuid(training_uuid)
             instance.device = torch.device(f"cuda:{device_index}")
-            print("trainign initialization")
 
         cnn_wranks = instance._get_cnn_wranks()
-        print(cnn_wranks)
         cnncomm, cnnrank, cnnsize, cnn_training_rank = instance._split_cnn(
             instance.wcomm, cnn_wranks
         )
-        if instance.wrank in cnn_wranks:
-            print("post_split", instance.process)
         instance.cnncomm = cnncomm
         instance.cnnrank = cnnrank
         instance.cnnsize = cnnsize
@@ -550,7 +544,6 @@ class MPIHandler:
         """Weight sending comm setup."""
         cnn_color = SMPI.UNDEFINED if self.wrank not in cnn_wranks else 0
         comm = wcomm.Split(cnn_color, self.wrank)
-        print(1)
         if comm != SMPI.COMM_NULL:
             rank = comm.Get_rank()
             size = comm.Get_size()
@@ -563,7 +556,6 @@ class MPIHandler:
             size = None
             cnn_training_rank = None
             cnn_training_rank = wcomm.bcast(rank, self.TRAINING_WRANK)
-        print(10)
         return comm, rank, size, cnn_training_rank
 
     @classmethod
